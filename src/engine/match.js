@@ -11,10 +11,10 @@ function round1(x) {
 export function teamRatings(squad) {
   const all = squad.map((p) => p.ovr);
   const overall = avg(all) || 60;
-  const atk = squad.filter((p) => p.pos === "ATA").map((p) => p.ovr);
-  const mid = squad.filter((p) => p.pos === "MEI").map((p) => p.ovr);
-  const def = squad.filter((p) => p.pos === "ZAG").map((p) => p.ovr);
-  const gks = squad.filter((p) => p.pos === "GOL").map((p) => p.ovr);
+  const atk = squad.filter((p) => p.pos === "ATT").map((p) => p.ovr);
+  const mid = squad.filter((p) => p.pos === "MID").map((p) => p.ovr);
+  const def = squad.filter((p) => p.pos === "DEF").map((p) => p.ovr);
+  const gks = squad.filter((p) => p.pos === "GK").map((p) => p.ovr);
 
   const A = atk.length ? avg(atk) : overall - 3;
   const M = mid.length ? avg(mid) : overall - 3;
@@ -41,13 +41,13 @@ function poisson(lambda) {
 // Peso de cada jogador para marcar gols.
 function scorerWeight(p) {
   switch (p.pos) {
-    case "ATA":
+    case "ATT":
       return p.ovr * p.ovr * 0.02;
-    case "MEI":
+    case "MID":
       return p.ovr * 0.9;
-    case "ZAG":
+    case "DEF":
       return p.ovr * 0.12;
-    case "GOL":
+    case "GK":
       return 0.02;
     default:
       return p.ovr * 0.3;

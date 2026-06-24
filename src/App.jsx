@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { clientId, saveSession, loadSession, clearSession } from "./lib/id.js";
 import { openRoom, roomExists, hasSupabase } from "./lib/net.js";
-import { generatePool } from "./engine/players.js";
-import { snakeOrder } from "./engine/draft.js";
+import { buildTeam } from "./engine/team.js";
+import { DEFAULT_FORMATION } from "./engine/formations.js";
+import {
+  createManagerDraft,
+  ensureRoll,
+  applyReroll,
+  applyPick,
+  applyMove,
+  autoStep,
+} from "./engine/draft7a0.js";
+import { WORLDCUP_SQUADS, SQUAD_BY_ID, squadLabel } from "./data/worldcupSquads.js";
 import { simulateMatch } from "./engine/match.js";
 import {
   createTournament,
@@ -13,9 +22,43 @@ import {
 import { TEAM_COLORS, TEAM_EMOJIS, Logo } from "./components/bits.jsx";
 import Home from "./components/Home.jsx";
 import Lobby from "./components/Lobby.jsx";
-import Draft from "./components/Draft.jsx";
+import Draft7a0 from "./components/Draft7a0.jsx";
 import Tournament from "./components/Tournament.jsx";
 import Champion from "./components/Champion.jsx";
+
+// Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
+// redutor autoritativo (anfitrião) e pelo modo local.
+function applyDraftIntent(prev, intent, players, settings) {
+  if (prev.phase !== "draft" || !prev.draft) return prev;
+  let d = prev.draft;
+  switch (intent.kind) {
+    case "formation":
+      d = structuredClone(d);
+      if (d.mgr[intent.managerId] && Object.keys(d.mgr[intent.managerId].slots).length === 0)
+        d.mgr[intent.managerId].formation = intent.formation;
+      break;
+    case "reroll":
+      d = applyReroll(d, intent.managerId, intent.rerollKind);
+      break;
+    case "pick":
+      d = applyPick(d, intent.managerId, intent.playerId, intent.slotIndex);
+      break;
+    case "move":
+      d = applyMove(d, intent.managerId, intent.from, intent.to);
+      break;
+    case "auto":
+      d = autoStep(d, intent.managerId);
+      break;
+    default:
+      return prev;
+  }
+  const next = { ...prev, draft: d };
+  if (d.done) {
+    next.phase = "tournament";
+    next.tournament = createTournament(players || prev.players, settings || prev.settings);
+  }
+  return next;
+}
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -37,11 +80,23 @@ function makePlayer(id, name, index) {
   };
 }
 
-function buildTeam(state, managerId) {
-  const mgr = state.players.find((p) => p.id === managerId);
-  const ids = state.draft?.picks[managerId] || [];
-  const squad = ids.map((pid) => state.pool.find((pp) => pp.id === pid)).filter(Boolean);
-  return { id: managerId, name: mgr?.teamName || "Time", squad };
+const BOT_EMOJIS = ["🤖", "👾", "🦾", "⚙️", "🛸", "📟", "🔩", "💾"];
+
+// Cria um adversário-bot que É uma seleção real (Brasil 2022, Argentina 1986…).
+function makeSquadBot(index, usedSquadIds) {
+  const avail = WORLDCUP_SQUADS.filter((s) => !usedSquadIds.includes(s.id));
+  const squad = (avail.length ? avail : WORLDCUP_SQUADS)[Math.floor(Math.random() * (avail.length ? avail.length : WORLDCUP_SQUADS.length))];
+  return {
+    id: "bot_" + Math.random().toString(36).slice(2, 8),
+    name: "CPU",
+    teamName: squadLabel(squad),
+    emoji: BOT_EMOJIS[index % BOT_EMOJIS.length],
+    color: TEAM_COLORS[index % TEAM_COLORS.length],
+    flag: squad.flag,
+    joinedAt: Date.now() + index,
+    isBot: true,
+    squadId: squad.id,
+  };
 }
 
 export default function App() {
@@ -85,9 +140,8 @@ export default function App() {
         code,
         hostId: myId,
         phase: "lobby",
-        settings: { format: "knockout", squadSize: 5 },
+        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30 },
         players: [host],
-        pool: null,
         draft: null,
         tournament: null,
         presenting: null,
@@ -178,6 +232,16 @@ export default function App() {
         return { ...prev, players: [...prev.players, makePlayer(id, name, prev.players.length)] };
       });
     },
+    addBot() {
+      setState((prev) => {
+        if (prev.players.length >= 8) return prev;
+        const used = prev.players.filter((p) => p.squadId).map((p) => p.squadId);
+        return { ...prev, players: [...prev.players, makeSquadBot(prev.players.length, used)] };
+      });
+    },
+    removePlayer(id) {
+      setState((prev) => ({ ...prev, players: prev.players.filter((p) => p.id !== id) }));
+    },
     setSettings(patch) {
       setState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
     },
@@ -188,41 +252,32 @@ export default function App() {
     startDraft() {
       setState((prev) => {
         if (prev.players.length < 2) return prev;
-        const ids = prev.players.map((p) => p.id);
-        const squadSize = prev.settings.squadSize;
-        const order = snakeOrder(ids, squadSize);
-        const picks = {};
-        ids.forEach((id) => (picks[id] = []));
-        const poolSize = Math.min(220, Math.max(120, ids.length * squadSize + 60));
-        const pool = generatePool(poolSize);
-        return {
-          ...prev,
-          phase: "draft",
-          pool,
-          draft: { order, pickIndex: 0, picks, pickedSet: [], done: false },
+        const humans = prev.players.filter((p) => !p.isBot);
+        const mgr = {};
+        humans.forEach((p) => {
+          mgr[p.id] = createManagerDraft(DEFAULT_FORMATION, prev.settings.difficulty);
+        });
+        let draft = {
+          taken: [],
+          mgr,
+          difficulty: prev.settings.difficulty,
+          turnTimer: prev.settings.turnTimer || 30,
+          done: false,
         };
+        // sorteio inicial de cada técnico
+        humans.forEach((p) => (draft = ensureRoll(draft, p.id)));
+        return { ...prev, phase: "draft", draft };
       });
     },
-    pick(poolPlayerId) {
-      setState((prev) => {
-        const isLocal = roomRef.current?.isLocal;
-        const d = structuredClone(prev.draft);
-        const curId = d.order[d.pickIndex];
-        if (!isLocal && curId !== myId) return prev; // não é sua vez
-        if (d.pickedSet.includes(poolPlayerId)) return prev; // já escolhido
-        const actor = isLocal ? curId : myId;
-        d.picks[actor] = d.picks[actor] || [];
-        d.picks[actor].push(poolPlayerId);
-        d.pickedSet.push(poolPlayerId);
-        d.pickIndex++;
-        const next = { ...prev, draft: d };
-        if (d.pickIndex >= d.order.length) {
-          d.done = true;
-          next.phase = "tournament";
-          next.tournament = createTournament(prev.players, prev.settings);
-        }
-        return next;
-      });
+    // Envia uma intent de draft (aplica direto se for o controlador; senão, broadcast).
+    dispatchDraft(intent) {
+      const full = { ...intent, managerId: intent.managerId || myId };
+      const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
+      if (controller) {
+        setState((prev) => applyDraftIntent(prev, full, prev.players, prev.settings));
+      } else {
+        roomRef.current?.broadcast?.("draft", full);
+      }
     },
     simulateNext() {
       setState((prev) => {
@@ -240,6 +295,19 @@ export default function App() {
       setState((prev) => {
         const fin = tournamentFinished(prev.tournament);
         return { ...prev, presenting: null, phase: fin ? "finished" : "tournament" };
+      });
+    },
+    // Abre a partida 2D ao vivo (resultado é gerado pelo motor ao terminar).
+    startLiveMatch(matchId) {
+      setState((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now() } }));
+    },
+    finishLiveMatch(matchId, result) {
+      setState((prev) => {
+        if (!prev.tournament) return prev;
+        const t = structuredClone(prev.tournament);
+        applyMatchResult(t, matchId, result, prev.players);
+        const fin = tournamentFinished(t);
+        return { ...prev, tournament: t, presenting: null, phase: fin ? "finished" : "tournament" };
       });
     },
     simulateRound() {
@@ -292,13 +360,25 @@ export default function App() {
       setState((prev) => ({
         ...prev,
         phase: "lobby",
-        pool: null,
         draft: null,
         tournament: null,
         presenting: null,
       }));
     },
   };
+
+  // ---------- redutor autoritativo do draft (anfitrião aplica intents recebidas) ----------
+  useEffect(() => {
+    if (!room) return;
+    const controller = room.isLocal || gstate?.hostId === myId;
+    if (!controller) return;
+    const off = room.onBroadcast?.((event, data) => {
+      if (event !== "draft") return;
+      setState((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+    });
+    return () => off && off();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room, gstate?.hostId, myId]);
 
   // ---------- render ----------
   if (screen === "home" || !gstate) {
@@ -346,13 +426,15 @@ export default function App() {
         />
       )}
       {gstate.phase === "draft" && (
-        <Draft state={gstate} myId={myId} isLocal={isLocal} actions={actions} />
+        <Draft7a0 state={gstate} myId={myId} isLocal={isLocal} isHost={isHost} actions={actions} />
       )}
       {gstate.phase === "tournament" && (
         <Tournament
           state={gstate}
           myId={myId}
           isHost={isHost}
+          isLocal={isLocal}
+          room={room}
           actions={actions}
           hostOffline={hostOffline}
         />

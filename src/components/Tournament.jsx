@@ -4,8 +4,10 @@ import {
   leagueTable,
   roundLabel,
 } from "../engine/tournament.js";
+import { buildTeam } from "../engine/team.js";
 import { Avatar, Eyebrow, ChalkLine, Crown } from "./bits.jsx";
 import MatchView from "./MatchView.jsx";
+import MatchLive from "./MatchLive.jsx";
 
 function TeamLine({ player, goals, winner }) {
   return (
@@ -52,14 +54,35 @@ function MatchCard({ match, players, current }) {
   );
 }
 
-export default function Tournament({ state, myId, isHost, actions, hostOffline }) {
+export default function Tournament({ state, myId, isHost, isLocal, room, actions, hostOffline }) {
   const t = state.tournament;
   const players = state.players;
 
-  // partida em apresentação (animação compartilhada)
+  // partida em apresentação
   if (state.presenting) {
     const all = t.format === "league" ? t.fixtures : t.rounds.flat();
     const m = all.find((x) => x.id === state.presenting.matchId);
+    // Partida 2D AO VIVO
+    if (m && state.presenting.mode === "live") {
+      return (
+        <div className="screen tournament tournament-live">
+          <MatchLive
+            key={m.id}
+            match={{ id: m.id, knockout: t.format === "knockout" }}
+            home={buildTeam(state, m.homeId)}
+            away={buildTeam(state, m.awayId)}
+            homeMgr={players.find((p) => p.id === m.homeId)}
+            awayMgr={players.find((p) => p.id === m.awayId)}
+            myId={myId}
+            isHost={isHost}
+            isLocal={isLocal}
+            room={room}
+            onFinish={(result) => actions.finishLiveMatch(m.id, result)}
+          />
+        </div>
+      );
+    }
+    // fallback animado (resultado pré-calculado)
     if (m && m.result) {
       return (
         <div className="screen tournament">
@@ -91,8 +114,8 @@ export default function Tournament({ state, myId, isHost, actions, hostOffline }
 
       {isHost && upcoming && (
         <div className="sticky-actions">
-          <button className="btn btn-primary btn-block btn-lg" onClick={actions.simulateNext}>
-            ▶ Simular próxima partida
+          <button className="btn btn-primary btn-block btn-lg" onClick={() => actions.startLiveMatch(upcoming.id)}>
+            ▶ Jogar partida 2D
           </button>
           <div className="btn-pair">
             <button className="btn btn-ghost" onClick={actions.simulateRound}>Simular rodada</button>

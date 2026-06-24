@@ -46,8 +46,15 @@ async function openSupabaseRoom(code, { create = false, initialState = null, pre
     _state = data.state;
   }
 
+  const bcastCbs = new Set();
+
   channel = supabase.channel("room_" + code, {
-    config: { presence: { key: clientId() } },
+    config: { presence: { key: clientId() }, broadcast: { self: false } },
+  });
+
+  channel.on("broadcast", { event: "fd" }, (msg) => {
+    const p = msg.payload || {};
+    bcastCbs.forEach((cb) => cb(p.event, p.data, p.from));
   });
 
   channel.on(
@@ -110,6 +117,14 @@ async function openSupabaseRoom(code, { create = false, initialState = null, pre
     async updatePresence(meta) {
       if (channel) await channel.track(meta);
     },
+    broadcast(event, data) {
+      if (!channel) return;
+      channel.send({ type: "broadcast", event: "fd", payload: { event, data, from: clientId() } });
+    },
+    onBroadcast(cb) {
+      bcastCbs.add(cb);
+      return () => bcastCbs.delete(cb);
+    },
     async leave() {
       try {
         if (channel) {
@@ -119,6 +134,7 @@ async function openSupabaseRoom(code, { create = false, initialState = null, pre
       } catch (_) {}
       stateCbs.clear();
       presCbs.clear();
+      bcastCbs.clear();
     },
   };
   return room;
@@ -147,6 +163,17 @@ async function openLocalRoom(code, { create = false, initialState = null }) {
     }
   });
 
+  // Canal efêmero (comandos/snapshots ao vivo) entre abas.
+  const bcastCbs = new Set();
+  let bc = null;
+  try {
+    bc = new BroadcastChannel("fd_" + code);
+    bc.onmessage = (e) => {
+      const p = e.data || {};
+      bcastCbs.forEach((cb) => cb(p.event, p.data, p.from));
+    };
+  } catch (_) {}
+
   return {
     code,
     isLocal: true,
@@ -169,8 +196,17 @@ async function openLocalRoom(code, { create = false, initialState = null }) {
       return value;
     },
     async updatePresence() {},
+    broadcast(event, data) {
+      if (bc) bc.postMessage({ event, data, from: clientId() });
+    },
+    onBroadcast(cb) {
+      bcastCbs.add(cb);
+      return () => bcastCbs.delete(cb);
+    },
     async leave() {
       stateCbs.clear();
+      bcastCbs.clear();
+      try { if (bc) bc.close(); } catch (_) {}
     },
   };
 }

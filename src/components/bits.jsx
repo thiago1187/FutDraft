@@ -11,12 +11,21 @@ export const TEAM_EMOJIS = [
 ];
 
 export function Logo({ size = "lg" }) {
+  if (size === "sm") {
+    return (
+      <div className="logo logo-sm">
+        <span className="logo-word">Fut<span className="logo-accent">Draft</span></span>
+        <span className="logo-ball" aria-hidden />
+      </div>
+    );
+  }
   return (
-    <div className={`logo logo-${size}`}>
-      <span className="logo-ball" aria-hidden>⚽</span>
-      <span className="logo-word">
-        Fut<span className="logo-accent">Draft</span>
+    <div className="logo logo-lg">
+      <span className="logo-line">FUT</span>
+      <span className="logo-line">
+        DRAFT<span className="logo-ball" aria-hidden />
       </span>
+      <span className="logo-bar" aria-hidden />
     </div>
   );
 }

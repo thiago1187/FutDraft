@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
-import { topScorers } from "../engine/tournament.js";
+import { topScorers, allMatches } from "../engine/tournament.js";
 import { Avatar, Eyebrow } from "./bits.jsx";
+
+// Procura um 7×0 (placar lendário do 7a0) feito pelo campeão.
+function findSevenNil(t, champId) {
+  for (const m of allMatches(t)) {
+    if (!m.played || !m.result) continue;
+    const { homeGoals: h, awayGoals: a } = m.result;
+    if (h >= 7 && a === 0 && m.homeId === champId) return true;
+    if (a >= 7 && h === 0 && m.awayId === champId) return true;
+  }
+  return false;
+}
 
 function Confetti() {
   const reduce =
@@ -41,6 +52,7 @@ export default function Champion({ state, isHost, actions }) {
   const scorers = topScorers(t);
   const top = scorers[0];
   const topTeam = top && state.players.find((p) => p.id === top.teamId);
+  const sevenNil = findSevenNil(t, t.champion);
   const [reveal, setReveal] = useState(false);
 
   useEffect(() => {
@@ -63,6 +75,7 @@ export default function Champion({ state, isHost, actions }) {
             <div className="champion-mgr">Técnico {champ.name}</div>
           </div>
         )}
+        {sevenNil && <div className="seven-nil">FEZ 7 A 0! 🎉</div>}
       </div>
 
       {top && (

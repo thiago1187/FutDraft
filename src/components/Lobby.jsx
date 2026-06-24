@@ -1,14 +1,19 @@
 import { useState } from "react";
 import { Avatar, Crown, Eyebrow, ChalkLine, TEAM_COLORS, TEAM_EMOJIS } from "./bits.jsx";
 
-const FORMATS = [
-  { id: "knockout", label: "Mata-mata", desc: "Eliminatória direta até a final" },
-  { id: "league", label: "Pontos corridos", desc: "Todos contra todos, campeão na ponta" },
+const MODALITIES = [
+  { id: "pvp", label: "Técnicos × Técnicos", desc: "Os XI montados se enfrentam" },
+  { id: "cup", label: "Copa vs Seleções", desc: "Enfrente seleções reais" },
 ];
-const SQUADS = [
-  { id: 5, label: "5", desc: "Pelada" },
-  { id: 7, label: "7", desc: "Society" },
-  { id: 11, label: "11", desc: "Profissional" },
+const DIFFICULTIES = [
+  { id: "classic", label: "Clássico", desc: "Notas visíveis" },
+  { id: "almanac", label: "De Almanaque", desc: "Notas ocultas" },
+];
+const TIMERS = [
+  { id: 20, label: "20s" },
+  { id: 30, label: "30s" },
+  { id: 45, label: "45s" },
+  { id: 0, label: "∞" },
 ];
 
 export default function Lobby({ state, myId, online, isHost, isLocal, actions, hostOffline }) {
@@ -74,10 +79,14 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
                   {mine && <span className="tag tag-you">você</span>}
                 </div>
               </div>
+              {p.isBot && <span className="tag tag-bot">BOT</span>}
               {mine && (
                 <button className="btn btn-ghost btn-sm" onClick={() => setEditing((v) => !v)}>
                   {editing ? "Fechar" : "Editar"}
                 </button>
+              )}
+              {isHost && (p.isBot || p.id.startsWith("local_")) && (
+                <button className="roster-x" title="Remover" onClick={() => actions.removePlayer(p.id)}>×</button>
               )}
             </div>
           );
@@ -121,41 +130,61 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
         </div>
       )}
 
-      {isLocal && (
-        <button className="btn btn-ghost btn-block" onClick={addLocal}>+ Adicionar técnico</button>
+      {(isLocal || isHost) && (
+        <div className="lobby-add">
+          {isLocal && <button className="btn btn-ghost" onClick={addLocal}>+ Técnico</button>}
+          {isHost && <button className="btn btn-ghost" onClick={actions.addBot}>+ Seleção 🌍</button>}
+        </div>
+      )}
+      {isHost && state.players.length === 1 && (
+        <p className="hint center">Jogue sozinho: adicione seleções reais (Brasil 2022, Argentina 1986…) como adversárias. 🌍</p>
       )}
 
-      <ChalkLine label="formato da copa" />
+      <ChalkLine label="modalidade" />
       <div className="opt-grid">
-        {FORMATS.map((f) => (
+        {MODALITIES.map((m) => (
           <button
-            key={f.id}
-            className={`opt ${state.settings.format === f.id ? "sel" : ""} ${!isHost ? "locked" : ""}`}
+            key={m.id}
+            className={`opt ${(state.settings.modality || "pvp") === m.id ? "sel" : ""} ${!isHost ? "locked" : ""}`}
             disabled={!isHost}
-            onClick={() => isHost && actions.setSettings({ format: f.id })}
+            onClick={() => isHost && actions.setSettings({ modality: m.id })}
           >
-            <span className="opt-title">{f.label}</span>
-            <span className="opt-desc">{f.desc}</span>
+            <span className="opt-title">{m.label}</span>
+            <span className="opt-desc">{m.desc}</span>
           </button>
         ))}
       </div>
 
-      <div className="field-label" style={{ marginTop: 14 }}>Jogadores por time</div>
+      <ChalkLine label="dificuldade do draft" />
+      <div className="opt-grid">
+        {DIFFICULTIES.map((d) => (
+          <button
+            key={d.id}
+            className={`opt ${(state.settings.difficulty || "classic") === d.id ? "sel" : ""} ${!isHost ? "locked" : ""}`}
+            disabled={!isHost}
+            onClick={() => isHost && actions.setSettings({ difficulty: d.id })}
+          >
+            <span className="opt-title">{d.label}</span>
+            <span className="opt-desc">{d.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="field-label" style={{ marginTop: 14 }}>Tempo por escolha</div>
       <div className="seg">
-        {SQUADS.map((s) => (
+        {TIMERS.map((t) => (
           <button
-            key={s.id}
-            className={`seg-item ${state.settings.squadSize === s.id ? "sel" : ""}`}
+            key={t.id}
+            className={`seg-item ${(state.settings.turnTimer ?? 30) === t.id ? "sel" : ""}`}
             disabled={!isHost}
-            onClick={() => isHost && actions.setSettings({ squadSize: s.id })}
+            onClick={() => isHost && actions.setSettings({ turnTimer: t.id })}
           >
-            <strong>{s.label}</strong>
-            <small>{s.desc}</small>
+            <strong>{t.label}</strong>
           </button>
         ))}
       </div>
 
-      {!isHost && <p className="hint center">Só o anfitrião ajusta o formato e inicia o draft.</p>}
+      {!isHost && <p className="hint center">Só o anfitrião ajusta as configurações e inicia o draft.</p>}
 
       <div className="sticky-actions">
         {isHost ? (
