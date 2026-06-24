@@ -25,6 +25,7 @@ import Lobby from "./components/Lobby.jsx";
 import Draft7a0 from "./components/Draft7a0.jsx";
 import Tournament from "./components/Tournament.jsx";
 import Champion from "./components/Champion.jsx";
+import DevHarness from "./components/DevHarness.jsx";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -108,6 +109,7 @@ export default function App() {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
   const [session, setSession] = useState(loadSession());
+  const [dev, setDev] = useState(false);
   const roomRef = useRef(null);
 
   useEffect(() => {
@@ -381,6 +383,8 @@ export default function App() {
   }, [room, gstate?.hostId, myId]);
 
   // ---------- render ----------
+  if (dev) return <DevHarness onExit={() => setDev(false)} />;
+
   if (screen === "home" || !gstate) {
     if (screen === "room" && !gstate) {
       return (
@@ -393,7 +397,7 @@ export default function App() {
       );
     }
     return (
-      <div className="app">
+      <div className="app app-full">
         <Home
           onCreate={onCreate}
           onJoin={onJoin}
@@ -403,7 +407,7 @@ export default function App() {
           error={error}
           isLocal={!hasSupabase}
         />
-        <footer className="foot">FutDraft · {hasSupabase ? "online" : "modo local"}</footer>
+        <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>
     );
   }
@@ -412,8 +416,9 @@ export default function App() {
   const isLocal = !!room?.isLocal;
   const hostOffline = !isLocal && online.length > 0 && !online.includes(gstate.hostId);
 
+  const liveFull = gstate.phase === "tournament" && gstate.presenting?.mode === "live";
   return (
-    <div className="app">
+    <div className={"app" + (gstate.phase === "lobby" || liveFull ? " app-full" : "")}>
       {gstate.phase === "lobby" && (
         <Lobby
           state={gstate}
@@ -442,6 +447,7 @@ export default function App() {
       {gstate.phase === "finished" && (
         <Champion state={gstate} myId={myId} isHost={isHost} actions={actions} />
       )}
+      <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
     </div>
   );
 }

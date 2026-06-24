@@ -21,7 +21,7 @@ function rnd(a = 1) {
   return Math.random() * a;
 }
 
-const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve" };
+const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve", build: "toque" };
 
 // Posições base no campo (x comprimento, y largura) a partir dos slots da formação.
 function basePositions(team, side) {
@@ -85,6 +85,7 @@ export function createLiveMatch(home, away, opts = {}) {
     lastEvent: null,
     pens: null,
     xg: [0, 0],
+    stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] },
     paused: false,
     over: false,
     ratings: { home: rh, away: ra },
@@ -164,12 +165,16 @@ export function createLiveMatch(home, away, opts = {}) {
   // Avança a lógica de jogo (posse, ataque, finalização) em "ticks de minuto".
   function gameTick() {
     const poss = state.possession;
+    const pi = poss === "home" ? 0 : 1;
     const def = poss === "home" ? "away" : "home";
     const pf = postureFactor(state.tactics[poss]);
     const dpf = postureFactor(state.tactics[def]);
 
-    // avança o ataque
-    const advance = 0.12 + rnd(0.16) * pf.atk;
+    state.stats.possession[pi]++; // posse acumulada por tique
+
+    // avança o ataque (estilo "direto" amadurece mais rápido)
+    const buildFactor = state.tactics[poss].build === "direto" ? 1.25 : 1;
+    const advance = (0.12 + rnd(0.16) * pf.atk) * buildFactor;
     attackPhase += advance;
 
     // chance de perda de posse (pressão da defesa / marcação)
@@ -179,19 +184,27 @@ export function createLiveMatch(home, away, opts = {}) {
       state.possession = def;
       attackPhase = 0.1;
       state.ball.y = clamp(state.ball.y + rnd(30) - 15, 12, 88);
-      if (rnd(1) < 0.18) emit("corner", poss);
+      if (rnd(1) < 0.18) {
+        state.stats.corners[pi]++;
+        emit("corner", poss);
+      }
       return;
     }
 
     // finalização quando o ataque amadurece
     if (attackPhase >= 1) {
-      state.xg[poss === "home" ? 0 : 1] += shotOutcome(poss) * 0.5;
+      state.xg[pi] += shotOutcome(poss) * 0.5;
+      state.stats.shots[pi]++;
       if (rnd(1) < shotOutcome(poss)) {
+        state.stats.onTarget[pi]++;
         const scorer = pickScorer(poss);
-        state.score[poss === "home" ? 0 : 1]++;
+        state.score[pi]++;
         emit("goal", poss, { scorer: scorer?.name || "Gol", scorerId: scorer?.id || null, score: [...state.score] });
+      } else if (rnd(1) < 0.6) {
+        state.stats.onTarget[pi]++;
+        emit("save", poss);
       } else {
-        emit(rnd(1) < 0.6 ? "save" : "shot", poss);
+        emit("shot", poss);
       }
       state.possession = def; // recomeça do outro lado
       attackPhase = 0.05;

@@ -62,24 +62,22 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
   if (state.presenting) {
     const all = t.format === "league" ? t.fixtures : t.rounds.flat();
     const m = all.find((x) => x.id === state.presenting.matchId);
-    // Partida 2D AO VIVO
+    // Partida 2D AO VIVO (tela cheia)
     if (m && state.presenting.mode === "live") {
       return (
-        <div className="screen tournament tournament-live">
-          <MatchLive
-            key={m.id}
-            match={{ id: m.id, knockout: t.format === "knockout" }}
-            home={buildTeam(state, m.homeId)}
-            away={buildTeam(state, m.awayId)}
-            homeMgr={players.find((p) => p.id === m.homeId)}
-            awayMgr={players.find((p) => p.id === m.awayId)}
-            myId={myId}
-            isHost={isHost}
-            isLocal={isLocal}
-            room={room}
-            onFinish={(result) => actions.finishLiveMatch(m.id, result)}
-          />
-        </div>
+        <MatchLive
+          key={m.id}
+          match={{ id: m.id, knockout: t.format === "knockout" }}
+          home={buildTeam(state, m.homeId)}
+          away={buildTeam(state, m.awayId)}
+          homeMgr={players.find((p) => p.id === m.homeId)}
+          awayMgr={players.find((p) => p.id === m.awayId)}
+          myId={myId}
+          isHost={isHost}
+          isLocal={isLocal}
+          room={room}
+          onFinish={(result) => actions.finishLiveMatch(m.id, result)}
+        />
       );
     }
     // fallback animado (resultado pré-calculado)

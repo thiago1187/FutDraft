@@ -6,6 +6,8 @@ import { teamRatings } from "../engine/match.js";
 import { countryName } from "../engine/playersData.js";
 import { POS_COLOR } from "../engine/players.js";
 
+const POS_RANK = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
+
 export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
   const draft = state.draft;
   const humans = state.players.filter((p) => !p.isBot);
@@ -154,7 +156,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
                 {rollFree.length === 0 && <div className="d7-list-empty muted">Todos dessa seleção já foram levados. Re-sorteie!</div>}
                 {rollFree
                   .slice()
-                  .sort((a, b) => b.ovr - a.ovr)
+                  .sort((a, b) => POS_RANK[a.pos] - POS_RANK[b.pos])
                   .map((p) => {
                     const pickable = isPickable(p, formation, mgr.slots, taken);
                     return (

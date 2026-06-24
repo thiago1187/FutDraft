@@ -5,14 +5,19 @@ import Pitch2D from "./Pitch2D.jsx";
 
 const SPEEDS = [1, 2, 4];
 
-// Inicial do nome do time para o escudo quadrado.
 function badge(name = "") {
   const w = name.replace(/\s+FC$/i, "").trim().split(/\s+/);
   return ((w[0]?.[0] || "") + (w[1]?.[0] || w[0]?.[1] || "")).toUpperCase();
 }
+function capital(s = "") {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function lastName(name = "") {
+  const p = name.split(" ");
+  return p.length > 1 ? p[p.length - 1] : p[0];
+}
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish }) {
-  // O anfitrião roda o relógio (autoritativo) em ambos os modos; os demais assistem.
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, forcePens }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
@@ -20,20 +25,20 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const lastSnap = useRef(0);
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
+  const speedRef = useRef(2);
 
   const [, setTick] = useState(0);
   const [snap, setSnap] = useState(null);
   const [speed, setSpeed] = useState(2);
   const [paused, setPaused] = useState(false);
-  const [tab, setTab] = useState("tatica");
-  const [ctrlSide, setCtrlSide] = useState(myOwnedSide());
+  const [ctrlSide, setCtrlSide] = useState(ownedSide());
   const [subOut, setSubOut] = useState(null);
   const [pens, setPens] = useState(null);
 
   const homeColor = homeMgr?.color || "#E94E27";
   const awayColor = awayMgr?.color || "#2B5BA8";
 
-  function myOwnedSide() {
+  function ownedSide() {
     if (homeMgr?.id === myId) return "home";
     if (awayMgr?.id === myId) return "away";
     return "home";
@@ -42,31 +47,31 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     if (isLocal) return side === ctrlSide;
     if (homeMgr?.id === myId) return side === "home";
     if (awayMgr?.id === myId) return side === "away";
-    return isHost; // anfitrião neutro controla ambos
+    return isHost;
   }
+  const mySide = isLocal ? ctrlSide : ownedSide();
 
-  // ---- CONTROLLER: cria o motor e roda o relógio ----
+  useEffect(() => { speedRef.current = speed; }, [speed]);
+
+  // ---- CONTROLLER ----
   useEffect(() => {
     if (!controller) return;
-    const eng = createLiveMatch(home, away, {
-      knockout: match.knockout,
-      homeColor,
-      awayColor,
-    });
+    const eng = createLiveMatch(home, away, { knockout: match.knockout, homeColor, awayColor });
     engineRef.current = eng;
-
-    // recebe comandos dos outros técnicos (online)
+    if (forcePens) {
+      eng.state.phase = "PEN";
+      eng.state.minute = 90;
+      pensStartedRef.current = true;
+      startPens(eng);
+    }
     const off = room?.onBroadcast?.((event, data) => {
-      if (event !== "cmd" || !engineRef.current) return;
-      applyCommand(data);
+      if (event === "cmd" && engineRef.current) applyCommand(data);
     });
-
     const loop = (ts) => {
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
       if (e && !e.state.paused) e.step(Math.min(dt, 60), speedRef.current);
-      // snapshot p/ espectadores (~5x/s) — Supabase (online) ou BroadcastChannel (local 2 abas)
       if (room && ts - lastSnap.current > 200) {
         lastSnap.current = ts;
         room.broadcast("snap", compact(e.state));
@@ -81,21 +86,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      lastTs.current = 0;
-      off && off();
-    };
+    return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; off && off(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // mantém speed atual acessível dentro do loop
-  const speedRef = useRef(speed);
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
-  // ---- SPECTATOR: escuta snapshots ----
+  // ---- SPECTATOR ----
   useEffect(() => {
     if (controller) return;
     const off = room?.onBroadcast?.((event, data) => {
@@ -111,71 +106,74 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     if (!e) return;
     if (cmd.kind === "tactic") e.setTactic(cmd.side, cmd.patch);
     if (cmd.kind === "sub") {
-      const benchPlayer = (cmd.side === "home" ? home.bench : away.bench).find((p) => p.id === cmd.inId);
-      e.substitute(cmd.side, cmd.outId, benchPlayer);
+      const bp = (cmd.side === "home" ? home.bench : away.bench).find((p) => p.id === cmd.inId);
+      e.substitute(cmd.side, cmd.outId, bp);
     }
   }
-
   function sendCommand(cmd) {
     if (controller) applyCommand(cmd);
     else room?.broadcast?.("cmd", cmd);
   }
-
-  function setTactic(side, patch) {
+  function applyTactics(side, patch) {
     if (!canControl(side)) return;
     sendCommand({ kind: "tactic", side, patch });
     setTick((n) => n + 1);
   }
-
   function doSub(side, outId, inId) {
     if (!canControl(side)) return;
     sendCommand({ kind: "sub", side, outId, inId });
     setSubOut(null);
     setTick((n) => n + 1);
   }
-
   function togglePause() {
     const e = engineRef.current;
     if (!e) return;
-    const v = e.togglePause();
-    setPaused(v);
+    setPaused(e.togglePause());
   }
-
   function startPens(e) {
-    const sh = teamRatings(home.squad);
-    const sa = teamRatings(away.squad);
+    const sh = teamRatings(home.squad), sa = teamRatings(away.squad);
     const probH = Math.min(0.92, Math.max(0.55, 0.62 + (sh.overall - 70) / 120));
     const probA = Math.min(0.92, Math.max(0.55, 0.62 + (sa.overall - 70) / 120));
-    const p = { home: [], away: [], probH, probA, turn: "home", done: false, score: [0, 0] };
-    setPens(p);
+    setPens({ home: [], away: [], probH, probA, turn: "home", done: false, score: [0, 0] });
   }
-
+  // Dispara o chute: define o lance (mira, se entrou, lado do mergulho) e ANIMA.
+  // O placar só é registrado quando a animação termina (commitKick).
   function kick(aim) {
     setPens((prev) => {
-      if (!prev || prev.done) return prev;
+      if (!prev || prev.done || prev.animating) return prev;
       const p = structuredClone(prev);
       const side = p.turn;
       const prob = side === "home" ? p.probH : p.probA;
-      // mira no meio é levemente mais arriscada; cantos um pouco melhores
       const adj = aim === "meio" ? -0.05 : 0.03;
       const scored = Math.random() < Math.min(0.95, prob + adj);
+      const dirs = ["cantoE", "meio", "cantoD"];
+      // goleiro: se defendeu, vai no canto da bola; se levou gol, pula pro lado errado
+      const gkDir = scored ? dirs[(dirs.indexOf(aim) + 1 + Math.floor(Math.random() * 2)) % 3] : aim;
+      p.lastKick = { aim, scored, gkDir, side, id: (prev.lastKick?.id || 0) + 1 };
+      p.animating = true;
+      if (room) room.broadcast("pens", p);
+      return p;
+    });
+  }
+  // Registra o resultado do lance após a animação.
+  function commitKick() {
+    setPens((prev) => {
+      if (!prev || !prev.lastKick || !prev.animating) return prev;
+      const p = structuredClone(prev);
+      const { side, scored } = p.lastKick;
       p[side].push(scored);
       if (scored) p.score[side === "home" ? 0 : 1]++;
       p.turn = side === "home" ? "away" : "home";
-
-      // decide se acabou (5 cobranças cada, ou diferença insuperável, ou morte súbita)
-      const h = p.home, a = p.away;
-      const decided = isPenDecided(h, a, p.score);
-      if (decided) {
+      p.animating = false;
+      if (isPenDecided(p.home, p.away, p.score)) {
         p.done = true;
-        const result = engineRef.current.result({ home: p.score[0], away: p.score[1], order: buildOrder(h, a) });
-        setTimeout(() => finalize(result), 700);
+        const result = engineRef.current.result({ home: p.score[0], away: p.score[1], order: [] });
+        setTimeout(() => finalize(result), 1000);
       }
       if (room) room.broadcast("pens", p);
       return p;
     });
   }
-
   function finalize(result) {
     if (finishedRef.current) return;
     finishedRef.current = true;
@@ -184,310 +182,244 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     onFinish(result);
   }
 
-  // ---- estado a renderizar (motor local ou snapshot) ----
   const view = controller ? engineRef.current?.state : snap;
-  if (!view) {
-    return <div className="ml-loading">Preparando a partida…</div>;
-  }
+  if (!view) return <div className="ml-loading">Preparando a partida…</div>;
 
   const homeName = homeMgr?.teamName || home.name;
   const awayName = awayMgr?.teamName || away.name;
   const minute = view.minute;
-  const phaseLabel =
-    view.phase === "INT" ? "Intervalo" : view.phase === "FIM" ? "Fim de jogo" : view.phase === "PEN" ? "Pênaltis" : `${minute}'`;
+  const phaseLabel = view.phase === "INT" ? "Intervalo" : view.phase === "FIM" ? "Fim de jogo" : view.phase === "PEN" ? "Pênaltis" : `${minute}'`;
   const tempo = minute < 45 ? "1º tempo" : "2º tempo";
+  const sideColor = mySide === "home" ? homeColor : awayColor;
+  const sideName = mySide === "home" ? homeName : awayName;
+  const bench = mySide === "home" ? home.bench : away.bench;
+  const stats = view.stats || { possession: [1, 1], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] };
 
   return (
-    <div className="matchlive">
-      {/* broadcast top bar */}
-      <div className="ml-top">
-        <div className="ml-team ml-team-l">
-          <span className="ml-badge" style={{ background: homeColor }}>{badge(homeName)}</span>
-          <div className="ml-team-info">
-            <div className="ml-team-name">{homeName}</div>
-            <div className="ml-team-sub">{home.lineup?.formation?.name} · {capital(view.tactics?.home?.posture)}</div>
-          </div>
+    <div className="matchlive-full">
+      {/* TOP — placar transmissão */}
+      <div className="mlf-top">
+        <div className="mlf-team l">
+          <span className="mlf-badge" style={{ background: homeColor }}>{badge(homeName)}</span>
+          <div><div className="mlf-team-name">{homeName}</div><div className="mlf-team-sub">{home.lineup?.formation?.name} · {capital(view.tactics?.home?.posture)}</div></div>
         </div>
-        <div className="ml-score">
-          <div className="ml-score-nums">
-            <span>{view.score[0]}</span><i>—</i><span>{view.score[1]}</span>
-          </div>
-          <div className="ml-clock">
-            <span className="ml-dot" /> {phaseLabel} · {tempo}
-          </div>
+        <div className="mlf-score">
+          <div className="mlf-score-nums"><span>{view.score[0]}</span><i>—</i><span>{view.score[1]}</span></div>
+          <div className="mlf-clock"><span className="ml-dot" /> {phaseLabel} · {tempo}</div>
         </div>
-        <div className="ml-team ml-team-r">
-          <div className="ml-team-info ml-right">
-            <div className="ml-team-name">{awayName}</div>
-            <div className="ml-team-sub">{away.lineup?.formation?.name} · {capital(view.tactics?.away?.posture)}</div>
-          </div>
-          <span className="ml-badge" style={{ background: awayColor }}>{badge(awayName)}</span>
+        <div className="mlf-team r">
+          <div className="mlf-right"><div className="mlf-team-name">{awayName}</div><div className="mlf-team-sub">{away.lineup?.formation?.name} · {capital(view.tactics?.away?.posture)}</div></div>
+          <span className="mlf-badge" style={{ background: awayColor }}>{badge(awayName)}</span>
         </div>
       </div>
 
-      <div className="ml-main">
-        <div className="ml-field-wrap">
-          <Pitch2D
-            tokens={view.tokens}
-            ball={view.ball}
-            homeColor={homeColor}
-            awayColor={awayColor}
-            lastEvent={view.lastEvent}
-            homeName={homeName}
-            awayName={awayName}
-          />
-        </div>
-
-        {/* SIDE PANEL */}
-        <div className="ml-side">
-          <div className="ml-tabs">
-            {[["lances", "Lances"], ["tatica", "Tática"], ["banco", "Banco"]].map(([k, label]) => (
-              <button key={k} className={`ml-tab ${tab === k ? "sel" : ""}`} onClick={() => setTab(k)}>
-                {label}
+      {/* MAIN — 3 colunas */}
+      <div className="mlf-main">
+        {/* ESQUERDA — elenco + banco */}
+        <aside className="mlf-left">
+          {isLocal && (
+            <div className="mlf-sidesel">
+              {["home", "away"].map((s) => (
+                <button key={s} className={`mlf-sidetab ${ctrlSide === s ? "sel" : ""}`} style={{ "--c": s === "home" ? homeColor : awayColor }} onClick={() => { setCtrlSide(s); setSubOut(null); }}>
+                  {s === "home" ? homeName : awayName}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mlf-label">Seu elenco · energia</div>
+          <div className="mlf-squad">
+            {view.tokens[mySide].map((t) => (
+              <button key={t.id} className={`mlf-pl ${subOut === t.id ? "out" : ""}`} disabled={!canControl(mySide)} onClick={() => setSubOut(subOut === t.id ? null : t.id)}>
+                <span className="mlf-pl-num">{t.num}</span>
+                <span className="mlf-pl-body">
+                  <span className="mlf-pl-name">{lastName(t.name)}</span>
+                  <span className="mlf-energy"><i style={{ width: `${t.stamina ?? 100}%`, background: stamColor(t.stamina ?? 100) }} /></span>
+                </span>
               </button>
             ))}
           </div>
-
-          <div className="ml-panel">
-            {isLocal && (
-              <div className="ml-ctrl-switch">
-                {["home", "away"].map((s) => (
-                  <button
-                    key={s}
-                    className={`ml-side-tab ${ctrlSide === s ? "sel" : ""}`}
-                    style={{ "--c": s === "home" ? homeColor : awayColor }}
-                    onClick={() => setCtrlSide(s)}
-                  >
-                    {s === "home" ? homeName : awayName}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {tab === "lances" && <FeedPanel events={view.events} homeName={homeName} awayName={awayName} />}
-            {tab === "tatica" && (
-              <TacticsPanel
-                side={isLocal ? ctrlSide : myOwnedSide()}
-                tactics={view.tactics}
-                canControl={canControl}
-                setTactic={setTactic}
-              />
-            )}
-            {tab === "banco" && (
-              <BenchPanel
-                side={isLocal ? ctrlSide : myOwnedSide()}
-                view={view}
-                home={home}
-                away={away}
-                subOut={subOut}
-                setSubOut={setSubOut}
-                doSub={doSub}
-                canControl={canControl}
-              />
-            )}
+          <div className="mlf-label">Banco · prontos</div>
+          <div className="mlf-benchlist">
+            {(!bench || bench.length === 0) && <div className="ml-muted">Sem reservas.</div>}
+            {bench?.map((p) => (
+              <button key={p.id} className="mlf-bench" disabled={!canControl(mySide) || (view.subsLeft?.[mySide] ?? 0) <= 0} onClick={() => doSub(mySide, subOut, p.id)} title={subOut ? "Entra no lugar do selecionado" : "Toque num titular para escolher quem sai"}>
+                <span className="mlf-pl-num gold">{p.flag || "•"}</span>
+                <span className="mlf-pl-body"><span className="mlf-pl-name">{p.name}</span><span className="mlf-bench-meta">{posShort(p.pos)} · {p.ovr}</span></span>
+                <span className="mlf-bench-arr">↑</span>
+              </button>
+            ))}
           </div>
+        </aside>
+
+        {/* CENTRO — campo */}
+        <div className="mlf-center">
+          <Pitch2D tokens={view.tokens} ball={view.ball} homeColor={homeColor} awayColor={awayColor} lastEvent={view.lastEvent} homeName={homeName} awayName={awayName} />
         </div>
+
+        {/* DIREITA — tática ao vivo */}
+        <aside className="mlf-right-panel">
+          <div className="mlf-label gold">Tática ao vivo — {sideName}</div>
+          <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} />
+        </aside>
       </div>
 
-      {/* CONTROL BAR (controlador) */}
-      {controller && (
-        <div className="ml-controls">
-          <button className="ml-cbtn" onClick={togglePause}>
-            <span className="ml-pause-ico">{paused ? "▶" : "❚❚"}</span>
-            <span>{paused ? "Retomar" : "Pausa técnica"}</span>
+      {/* STATS */}
+      <div className="mlf-stats">
+        <StatRow label="Posse" h={pct(stats.possession, 0)} a={pct(stats.possession, 1)} pctMode hc={homeColor} ac={awayColor} />
+        <StatRow label="Finalizações" h={stats.shots[0]} a={stats.shots[1]} hc={homeColor} ac={awayColor} />
+        <StatRow label="No alvo" h={stats.onTarget[0]} a={stats.onTarget[1]} hc={homeColor} ac={awayColor} />
+        <StatRow label="Escanteios" h={stats.corners[0]} a={stats.corners[1]} hc={homeColor} ac={awayColor} />
+      </div>
+
+      {/* CONTROLES */}
+      {controller ? (
+        <div className="mlf-controls">
+          <button className={`mlf-cbtn ${paused ? "resume" : ""}`} onClick={togglePause}>
+            <span>{paused ? "▶" : "❚❚"}</span> {paused ? "Retomar jogo" : "Pausa técnica"}
           </button>
-          <button className="ml-cbtn" onClick={() => setTab("banco")}>
-            <span className="ml-sub-ico">⇄</span> Substituir
-            <span className="ml-sub-count">{Math.min(view.subsLeft?.home ?? 0, 5)}</span>
-          </button>
-          <div className="ml-spacer" />
-          <span className="ml-speed-label">Velocidade</span>
-          <div className="ml-speed">
-            {SPEEDS.map((s) => (
-              <button key={s} className={`ml-spd ${speed === s ? "sel" : ""}`} onClick={() => setSpeed(s)}>
-                {s}×
-              </button>
-            ))}
+          <div className="mlf-spacer" />
+          <span className="mlf-speed-label">Velocidade</span>
+          <div className="mlf-speed">
+            {SPEEDS.map((s) => <button key={s} className={`mlf-spd ${speed === s ? "sel" : ""}`} onClick={() => setSpeed(s)}>{s}×</button>)}
           </div>
         </div>
+      ) : (
+        <div className="ml-spectating">Assistindo ao vivo — o anfitrião comanda o relógio.</div>
       )}
-      {!controller && <div className="ml-spectating">Assistindo ao vivo — o anfitrião comanda o relógio.</div>}
 
-      {/* PÊNALTIS */}
       {pens && (
-        <Penalties
-          pens={pens}
-          homeName={homeName}
-          awayName={awayName}
-          homeColor={homeColor}
-          awayColor={awayColor}
-          canKick={controller}
-          onKick={kick}
-        />
+        <Penalties pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} canKick={controller} onKick={kick} onResolve={commitKick} />
       )}
     </div>
   );
 }
 
-function capital(s = "") {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function stamColor(s) {
+  return s > 70 ? "#3f9c63" : s > 52 ? "#c7a24a" : "#e94e27";
+}
+function posShort(pos) {
+  return pos === "GK" ? "GOL" : pos === "DEF" ? "ZAG" : pos === "MID" ? "MEI" : "ATA";
+}
+function pct(arr, i) {
+  const tot = (arr[0] || 0) + (arr[1] || 0);
+  return tot ? Math.round((arr[i] / tot) * 100) : 50;
+}
+
+function StatRow({ label, h, a, hc, ac, pctMode }) {
+  const total = pctMode ? 100 : (h + a) || 1;
+  const hw = pctMode ? h : (h / total) * 100;
+  return (
+    <div className="mlf-statrow">
+      <span className="mlf-stat-h" style={{ color: hc }}>{pctMode ? `${h}%` : h}</span>
+      <div className="mlf-stat-bar">
+        <i style={{ width: `${hw}%`, background: hc }} />
+        <i style={{ width: `${100 - hw}%`, background: ac }} />
+      </div>
+      <span className="mlf-stat-a" style={{ color: ac }}>{pctMode ? `${a}%` : a}</span>
+      <span className="mlf-stat-label">{label}</span>
+    </div>
+  );
+}
+
+const POSTURES = [["defensivo", "Def"], ["equilibrado", "Eq"], ["ofensivo", "Ofen"]];
+const LINES = [["recuada", "Baixa"], ["media", "Média"], ["alta", "Alta"]];
+const BUILDS = [["toque", "Toque a toque"], ["direto", "Direto"]];
+const MARKING = [["leve", "Leve"], ["pressao", "Pressão alta"]];
+
+function TacticsLive({ side, tactics, locked, onApply, sideColor }) {
+  const cur = tactics?.[side] || {};
+  const [pending, setPending] = useState(cur);
+  // ressincroniza quando troca de lado
+  const sideRef = useRef(side);
+  if (sideRef.current !== side) { sideRef.current = side; if (pending !== cur) setPending(cur); }
+
+  const dirty = ["posture", "line", "build", "marking"].some((k) => pending[k] !== cur[k]);
+  function set(k, v) { if (!locked) setPending((p) => ({ ...p, [k]: v })); }
+
+  return (
+    <div className="mlf-tactics">
+      <Seg label="Postura" options={POSTURES} value={pending.posture} onPick={(v) => set("posture", v)} />
+      <Seg label="Linha defensiva" options={LINES} value={pending.line} onPick={(v) => set("line", v)} />
+      <Seg label="Posse de bola" options={BUILDS} value={pending.build} onPick={(v) => set("build", v)} />
+      <Seg label="Pressão" options={MARKING} value={pending.marking} onPick={(v) => set("marking", v)} />
+      <button
+        className="mlf-apply"
+        disabled={locked || !dirty}
+        style={{ background: dirty ? sideColor : undefined }}
+        onClick={() => { onApply(side, pending); }}
+      >
+        {locked ? "Time do adversário" : dirty ? "Aplicar mudanças" : "Tática aplicada ✓"}
+      </button>
+    </div>
+  );
+}
+
+function Seg({ label, options, value, onPick }) {
+  return (
+    <div className="mlf-seg-block">
+      <div className="mlf-seg-label">{label}</div>
+      <div className="mlf-seg">
+        {options.map(([val, lbl]) => (
+          <button key={val} className={`mlf-seg-item ${value === val ? "sel" : ""}`} onClick={() => onPick(val)}>{lbl}</button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function compact(s) {
   return {
-    minute: s.minute,
-    phase: s.phase,
-    score: s.score,
-    ball: s.ball,
+    minute: s.minute, phase: s.phase, score: s.score, ball: s.ball,
     tokens: {
-      home: s.tokens.home.map((t) => ({ id: t.id, num: t.num, x: t.x, y: t.y, pos: t.pos, name: t.name })),
-      away: s.tokens.away.map((t) => ({ id: t.id, num: t.num, x: t.x, y: t.y, pos: t.pos, name: t.name })),
+      home: s.tokens.home.map((t) => ({ id: t.id, num: t.num, x: t.x, y: t.y, pos: t.pos, name: t.name, stamina: t.stamina })),
+      away: s.tokens.away.map((t) => ({ id: t.id, num: t.num, x: t.x, y: t.y, pos: t.pos, name: t.name, stamina: t.stamina })),
     },
-    lastEvent: s.lastEvent,
-    tactics: s.tactics,
-    subsLeft: s.subsLeft,
-    events: s.events.slice(-12),
+    lastEvent: s.lastEvent, tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats,
   };
 }
 
 function isPenDecided(h, a, score) {
   const hd = h.length, ad = a.length;
-  const remainingH = Math.max(0, 5 - hd);
-  const remainingA = Math.max(0, 5 - ad);
+  const remH = Math.max(0, 5 - hd), remA = Math.max(0, 5 - ad);
   if (hd <= 5 || ad <= 5) {
-    if (score[0] > score[1] + remainingA) return true;
-    if (score[1] > score[0] + remainingH) return true;
+    if (score[0] > score[1] + remA) return true;
+    if (score[1] > score[0] + remH) return true;
   }
-  // após 5 cada, morte súbita: decide quando ambos cobraram igual e diferem
   if (hd >= 5 && ad >= 5 && hd === ad && score[0] !== score[1]) return true;
   return false;
 }
 
-function buildOrder(h, a) {
-  const order = [];
-  const n = Math.max(h.length, a.length);
-  for (let i = 0; i < n; i++) {
-    if (i < h.length) order.push({ side: "home", scored: h[i] });
-    if (i < a.length) order.push({ side: "away", scored: a[i] });
-  }
-  return order;
-}
+// Posição-alvo da bola por mira (% dentro do gol) e deslocamento do mergulho do goleiro.
+const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
+const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function FeedPanel({ events, homeName, awayName }) {
-  const items = [...events].reverse().slice(0, 30);
-  return (
-    <div className="ml-feed">
-      {items.length === 0 && <div className="ml-muted">Bola rolando…</div>}
-      {items.map((e, i) => (
-        <div key={i} className={`ml-feed-row ${e.type}`}>
-          <span className="ml-feed-min">{e.minute}'</span>
-          <span className="ml-feed-ico">{feedIcon(e.type)}</span>
-          <span className="ml-feed-txt">{feedText(e, homeName, awayName)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, onKick, onResolve }) {
+  const lk = pens.lastKick;
+  const [phase, setPhase] = useState("idle"); // idle | shoot | result
 
-function feedIcon(t) {
-  return t === "goal" ? "⚽" : t === "save" ? "🧤" : t === "corner" ? "⛳" : t === "sub" ? "⇄" : t === "whistle" ? "🔔" : "•";
-}
-function feedText(e, homeName, awayName) {
-  const team = e.side === "home" ? homeName : awayName;
-  if (e.type === "goal") return `GOL! ${e.scorer} (${team})`;
-  if (e.type === "save") return `Defesa do goleiro (${team})`;
-  if (e.type === "shot") return `Finalização para fora (${team})`;
-  if (e.type === "corner") return `Escanteio (${team})`;
-  if (e.type === "sub") return `Sai ${e.outName}, entra ${e.inName}`;
-  if (e.type === "whistle") return e.text || "Apito";
-  return "";
-}
+  // anima quando chega um novo lance; ao fim, registra (só o controlador)
+  useEffect(() => {
+    if (!pens.animating || !lk) { setPhase("idle"); return; }
+    setPhase("shoot");
+    const t1 = setTimeout(() => setPhase("result"), 850);
+    const t2 = canKick ? setTimeout(() => onResolve(), 1250) : null;
+    return () => { clearTimeout(t1); if (t2) clearTimeout(t2); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lk?.id, pens.animating]);
 
-const POSTURES = [["defensivo", "Defensivo"], ["equilibrado", "Equilibrado"], ["ofensivo", "Ofensivo"]];
-const LINES = [["recuada", "Recuada"], ["media", "Média"], ["alta", "Alta"]];
-const MARKING = [["leve", "Leve"], ["pressao", "Pressão alta"]];
+  const shooting = pens.turn;
+  const shooterColor = shooting === "home" ? homeColor : awayColor;
+  const target = lk ? AIM_POS[lk.aim] : AIM_POS.meio;
+  const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
+  const animating = pens.animating && phase !== "idle";
+  const showResult = phase === "result" && lk;
 
-function TacticsPanel({ side, tactics, canControl, setTactic }) {
-  const t = tactics?.[side] || {};
-  const locked = !canControl(side);
-  const Row = (label, options, key) => (
-    <>
-      <div className="ml-tac-label">{label}</div>
-      <div className="ml-seg">
-        {options.map(([val, lbl]) => (
-          <button
-            key={val}
-            className={`ml-seg-item ${t[key] === val ? "sel" : ""}`}
-            disabled={locked}
-            onClick={() => setTactic(side, { [key]: val })}
-          >
-            {lbl}
-          </button>
-        ))}
-      </div>
-    </>
-  );
-  return (
-    <div className="ml-tactics">
-      {Row("Postura", POSTURES, "posture")}
-      {Row("Linha defensiva", LINES, "line")}
-      {Row("Marcação", MARKING, "marking")}
-      {locked && <p className="ml-muted">Você só ajusta o seu time.</p>}
-    </div>
-  );
-}
-
-function BenchPanel({ side, view, home, away, subOut, setSubOut, doSub, canControl }) {
-  const onField = view.tokens[side];
-  const bench = side === "home" ? home.bench : away.bench;
-  const locked = !canControl(side);
-  const subsLeft = view.subsLeft?.[side] ?? 0;
-
-  return (
-    <div className="ml-bench">
-      <div className="ml-tac-label">Em campo {subOut ? "· quem entra?" : "· toque em quem sai"}</div>
-      <div className="ml-onfield">
-        {onField.map((t) => (
-          <button
-            key={t.id}
-            className={`ml-pl ${subOut === t.id ? "out" : ""}`}
-            disabled={locked}
-            onClick={() => setSubOut(subOut === t.id ? null : t.id)}
-          >
-            <span className="ml-pl-num">{t.num}</span>
-            <span className="ml-pl-name">{t.name}</span>
-          </button>
-        ))}
-      </div>
-      <div className="ml-tac-label">Banco · {subsLeft} trocas restantes</div>
-      <div className="ml-benchlist">
-        {(!bench || bench.length === 0) && <div className="ml-muted">Sem reservas.</div>}
-        {bench?.map((p) => (
-          <button
-            key={p.id}
-            className="ml-pl bench"
-            disabled={locked || !subOut || subsLeft <= 0}
-            onClick={() => subOut && doSub(side, subOut, p.id)}
-          >
-            <span className="ml-pl-flag">{p.flag}</span>
-            <span className="ml-pl-name">{p.name}</span>
-            <span className="ml-pl-ovr">{p.ovr}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, onKick }) {
   const dots = (arr, n = 5) => {
     const out = [];
-    for (let i = 0; i < Math.max(n, arr.length); i++) {
-      if (i < arr.length) out.push(arr[i] ? "scored" : "missed");
-      else out.push("pending");
-    }
+    for (let i = 0; i < Math.max(n, arr.length); i++) out.push(i < arr.length ? (arr[i] ? "scored" : "missed") : "pending");
     return out;
   };
+
   return (
     <div className="pen-overlay">
       <div className="pen-card">
@@ -497,37 +429,55 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, on
           <span className="pen-nums"><b style={{ color: "#C7A24A" }}>{pens.score[0]}</b><i>—</i><b>{pens.score[1]}</b></span>
           <span className="pen-name">{awayName}</span>
         </div>
-        <div className="pen-goal">
-          <div className="pen-net" />
-          <div className="pen-ball" />
-          <div className="pen-shooting">
-            Vez: {pens.turn === "home" ? homeName : awayName}
+
+        {/* CENA ANIMADA */}
+        <div className="pen-scene">
+          <div className="pen-grass" />
+          {/* gol */}
+          <div className="pen-goalframe">
+            <span className="pen-post l" /><span className="pen-post r" /><span className="pen-bar" />
+            <span className="pen-mesh" />
           </div>
+          {/* goleiro */}
+          <div
+            key={"gk" + (lk?.id || 0)}
+            className={`pen-keeper ${animating ? "dive" : ""}`}
+            style={{ "--gx": gkShift + "px", "--gr": (gkShift < 0 ? -22 : gkShift > 0 ? 22 : 0) + "deg" }}
+          >
+            <span className="pen-kp-arm la" /><span className="pen-kp-arm ra" />
+            <span className="pen-kp-head" /><span className="pen-kp-body" />
+          </div>
+          {/* bola */}
+          <div
+            key={"ball" + (lk?.id || 0)}
+            className={`pen-ball2 ${animating ? "shot" : ""}`}
+            style={{ "--tx": target.x + "%", "--ty": target.y + "%" }}
+          />
+          {/* cobrador */}
+          <div key={"kik" + (lk?.id || 0)} className={`pen-kicker ${animating ? "kick" : ""}`}>
+            <span className="pen-kk-head" /><span className="pen-kk-body" style={{ background: shooterColor }} /><span className="pen-kk-leg" />
+          </div>
+          {/* etiqueta */}
+          {showResult ? (
+            <div className={`pen-flash ${lk.scored ? "goal" : "save"}`}>{lk.scored ? "GOL!" : "DEFENDEU!"}</div>
+          ) : (
+            <div className="pen-shooting">Cobrando: <b>{shooting === "home" ? homeName : awayName}</b></div>
+          )}
         </div>
+
         <div className="pen-rows">
-          <div className="pen-row">
-            <span className="pen-tag" style={{ color: homeColor }}>{badge(homeName)}</span>
-            <div className="pen-dots">
-              {dots(pens.home).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}
-            </div>
-          </div>
-          <div className="pen-row">
-            <span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span>
-            <div className="pen-dots">
-              {dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}
-            </div>
-          </div>
+          <div className="pen-row"><span className="pen-tag" style={{ color: homeColor }}>{badge(homeName)}</span><div className="pen-dots">{dots(pens.home).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
+          <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
         </div>
+
         {!pens.done && canKick && (
-          <>
-            <div className="pen-aim">
-              {[["cantoE", "↖ Canto"], ["meio", "↑ Meio"], ["cantoD", "↗ Canto"]].map(([k, l]) => (
-                <button key={k} className="pen-aim-btn" onClick={() => onKick(k)}>{l}</button>
-              ))}
-            </div>
-          </>
+          <div className="pen-aim">
+            {[["cantoE", "↖ Canto"], ["meio", "↑ Meio"], ["cantoD", "↗ Canto"]].map(([k, l]) => (
+              <button key={k} className="pen-aim-btn" disabled={pens.animating} onClick={() => onKick(k)}>{l}</button>
+            ))}
+          </div>
         )}
-        {!pens.done && !canKick && <div className="pen-wait">Aguardando a cobrança…</div>}
+        {!pens.done && !canKick && <div className="pen-wait">{pens.animating ? "Cobrando…" : "Aguardando a cobrança…"}</div>}
         {pens.done && <div className="pen-done">Decidido nos pênaltis!</div>}
       </div>
     </div>
