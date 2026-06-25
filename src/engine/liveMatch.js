@@ -266,18 +266,18 @@ export function createLiveMatch(home, away, opts = {}) {
     let loseP = clamp(0.05 * pressInt * (pd < 11 ? 2.1 : pd < 20 ? 1.2 : 0.6) + (tackler - drib) / 300, 0.01, 0.26);
     if (rnd() < loseP) {
       // chance de falta do defensor ao desarmar (mais com pressão alta)
-      if (rnd() < (t[opp].marking === "pressao" ? 0.22 : 0.12)) return doFoul(opp, c, bp);
+      if (rnd() < (t[opp].marking === "pressao" ? 0.58 : 0.42)) return doFoul(opp, c, bp, presser);
       turnover(opp, "tackle");
       return;
     }
 
     // finalização no terço final
     if (bp > 0.72) {
-      const freq = (0.14 + (bp - 0.72) * 0.8) * postureMult(poss) * (0.85 + t[poss].build * 0.4);
-      if (rnd() < clamp(freq, 0, 0.6)) return doShot(poss, c, bp);
+      const freq = (0.24 + (bp - 0.72) * 1.1) * postureMult(poss) * (0.85 + t[poss].build * 0.4);
+      if (rnd() < clamp(freq, 0, 0.7)) return doShot(poss, c, bp);
     }
     // chute de fora no estilo "direto"
-    if (bp > 0.5 && rnd() < 0.04 * t[poss].build) return doShot(poss, c, bp);
+    if (bp > 0.5 && rnd() < 0.09 * t[poss].build) return doShot(poss, c, bp);
 
     // progride: passe para companheiro mais à frente, ou conduz
     advanceBall(poss);
@@ -332,20 +332,28 @@ export function createLiveMatch(home, away, opts = {}) {
     }
   }
 
-  function doFoul(byside, victim, bp) {
+  function doFoul(byside, victim, bp, fouler) {
     state.stats.fouls[idx(byside)]++;
     const att = other(byside);
     // pênalti se a falta foi perto da área do infrator
-    const nearBox = bp > 0.85 && rnd() < 0.1;
-    // cartão
+    const nearBox = bp > 0.80 && rnd() < 0.22;
+    // autor da falta: o marcador mais próximo; senão um jogador de linha
+    let off = fouler && !fouler.out && fouler.pos !== "GK" ? fouler : null;
+    if (!off) off = state.tokens[byside].find((p) => !p.out && p.pos !== "GK");
     const r = rnd();
     const pressao = state.tactics[byside].marking === "pressao";
-    if (r < (pressao ? 0.03 : 0.012)) {
-      doRedCard(byside);
-    } else if (r < (pressao ? 0.22 : 0.14)) {
-      const off = state.tokens[byside].find((p) => !p.out && p.pos !== "GK");
-      emit("yellow", byside, { name: off?.name || "" });
-      setCinematic({ type: "yellow", side: byside, name: off?.name || "", holdMs: 650 });
+    if (off && r < (pressao ? 0.07 : 0.04)) {
+      doRedCard(byside, off, "Cartão vermelho"); // vermelho direto
+    } else if (off && r < (pressao ? 0.58 : 0.45)) {
+      off.yellow = (off.yellow || 0) + 1;
+      if (off.yellow >= 2) {
+        // SEGUNDO amarelo → expulso
+        emit("yellow", byside, { name: off.name, second: true });
+        doRedCard(byside, off, "2º amarelo → expulso");
+      } else {
+        emit("yellow", byside, { name: off.name });
+        setCinematic({ type: "yellow", side: byside, name: off.name, holdMs: 650 });
+      }
     }
     if (nearBox) { doPenalty(att); return; }
     // falta comum: posse do atacante onde estava
@@ -353,16 +361,20 @@ export function createLiveMatch(home, away, opts = {}) {
     state.carrier = null; state.pass = null;
   }
 
-  function doRedCard(side) {
-    // expulsa um jogador de linha (preferência defensor) → joga com 10
-    const cand = state.tokens[side].filter((p) => !p.out && p.pos !== "GK");
-    if (!cand.length) return;
-    const victim = cand.sort((a, b) => (a.pos === "DEF" ? -1 : 1) - (b.pos === "DEF" ? -1 : 1))[0] || cand[0];
+  // Expulsa um jogador (vermelho direto, 2º amarelo, ou — sem alvo — escolhe um zagueiro).
+  function doRedCard(side, player, reason) {
+    let victim = player && !player.out && player.pos !== "GK" ? player : null;
+    if (!victim) {
+      const cand = state.tokens[side].filter((p) => !p.out && p.pos !== "GK");
+      if (!cand.length) return;
+      victim = cand.sort((a, b) => (a.pos === "DEF" ? -1 : 1) - (b.pos === "DEF" ? -1 : 1))[0] || cand[0];
+    }
+    if (victim.out) return; // já expulso
     victim.out = true;
     state.men[side]--;
     state.cards[side].push("red");
-    emit("red", side, { name: victim.name });
-    setCinematic({ type: "red", side, name: victim.name, holdMs: 1500 });
+    emit("red", side, { name: victim.name, reason: reason || "Cartão vermelho" });
+    setCinematic({ type: "red", side, name: victim.name, reason: reason || "Cartão vermelho", holdMs: 1500 });
     recalcLam();
   }
 

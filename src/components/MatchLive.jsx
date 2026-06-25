@@ -418,7 +418,7 @@ function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
     big = cine.outcome === "goal" ? "GOL DE PÊNALTI!" : "PÊNALTI DEFENDIDO!";
     sub = cine.shooter; cls = cine.outcome === "goal" ? "goal" : "save";
   } else if (cine.type === "yellow") { big = "CARTÃO AMARELO"; sub = cine.name; cls = "yellow"; }
-  else if (cine.type === "red") { big = "CARTÃO VERMELHO"; sub = cine.name; cls = "red"; }
+  else if (cine.type === "red") { big = "CARTÃO VERMELHO"; sub = /amarelo/i.test(cine.reason || "") ? `${cine.name} · 2º amarelo` : cine.name; cls = "red"; }
   if (!big) return null;
   return (
     <div className={`ml-cine ${cls}`} key={cine.id} style={{ "--team": teamColor }}>

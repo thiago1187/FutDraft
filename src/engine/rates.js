@@ -67,6 +67,14 @@ export function computeLambdas(state) {
   lamA *= 0.97 + (state.tactics.home.build ?? 0.4) * 0.08;
   lamB *= 0.97 + (state.tactics.away.build ?? 0.4) * 0.08;
 
+  // Linha defensiva: ALTA ganha território (ataca mais) MAS concede contra-ataque nas
+  // costas; BAIXA é bloco fechado (concede menos, cria menos). MÉDIA = neutra.
+  const LINE = { baixa: { self: 0.93, opp: 0.90 }, media: { self: 1, opp: 1 }, alta: { self: 1.06, opp: 1.10 } };
+  const lnA = LINE[state.tactics.home.line] || LINE.media;
+  const lnB = LINE[state.tactics.away.line] || LINE.media;
+  lamA *= lnA.self * lnB.opp;
+  lamB *= lnB.self * lnA.opp;
+
   // Cartões vermelhos: punido cai forte, adversário sobe
   const redsA = 11 - (state.men?.home ?? 11), redsB = 11 - (state.men?.away ?? 11);
   lamA *= Math.pow(0.7, redsA) * Math.pow(1.15, redsB);

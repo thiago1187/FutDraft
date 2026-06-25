@@ -1,4 +1,8 @@
 // Simulação de uma partida a partir dos elencos (squads) de cada time.
+// Usa EXATAMENTE o mesmo λ Dixon-Coles do motor ao vivo (rates.js): campo neutro,
+// SEM vantagem de mando. Assim "simular" e "assistir" convergem (relatório §4/§7).
+
+import { computeLambdas } from "./rates.js";
 
 function avg(arr) {
   return arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
@@ -98,16 +102,35 @@ function shootout(home, away) {
   return { home: h, away: a, order };
 }
 
-// Simula a partida. home/away = { id, name, squad: [players] }.
-export function simulateMatch(home, away, { knockout = false, neutral = true } = {}) {
-  const rh = teamRatings(home.squad);
-  const ra = teamRatings(away.squad);
-  const homeAdv = neutral ? 0.08 : 0.25;
+// Choque de forma por partida (lognormal, média 1) — variância/zebra (relatório §6.6).
+function formShock() {
+  let u = 0, v = 0;
+  while (!u) u = Math.random();
+  while (!v) v = Math.random();
+  const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  const SIGMA = 0.13;
+  return Math.exp(SIGMA * z - (SIGMA * SIGMA) / 2);
+}
 
-  let xgH = 1.3 + (rh.attack - ra.defense) / 13 + homeAdv;
-  let xgA = 1.3 + (ra.attack - rh.defense) / 13;
-  xgH = Math.min(5.5, Math.max(0.22, xgH));
-  xgA = Math.min(5.5, Math.max(0.22, xgA));
+// Monta um estado mínimo p/ reusar o λ do motor ao vivo (Dixon-Coles, campo neutro).
+function lambdasFor(home, away) {
+  const toTokens = (squad) => squad.map((p) => ({ ...p, stamina: 100, out: false }));
+  const eq = { posture: "equilibrado", marking: "leve", build: 0.4 };
+  const state = {
+    tokens: { home: toTokens(home.squad), away: toTokens(away.squad) },
+    tactics: { home: { ...eq }, away: { ...eq } },
+    men: { home: 11, away: 11 },
+    score: [0, 0], minute: 0,
+    form: { home: formShock(), away: formShock() },
+  };
+  return computeLambdas(state); // { home, away } — simétrico, SEM termo de mando
+}
+
+// Simula a partida. home/away = { id, name, squad: [players] }.
+export function simulateMatch(home, away, { knockout = false } = {}) {
+  const lam = lambdasFor(home, away); // campo neutro, sem vantagem de casa
+  const xgH = lam.home;
+  const xgA = lam.away;
 
   const gh = poisson(xgH);
   const ga = poisson(xgA);
