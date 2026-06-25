@@ -64,6 +64,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const [paused, setPaused] = useState(false);
   const [ctrlSide, setCtrlSide] = useState(controllable[0] || "home");
   const [pens, setPens] = useState(null);
+  const [tacticsOpen, setTacticsOpen] = useState(false);
 
   const canControl = (side) => controllable.includes(side);
   const mySide = controllable.includes(ctrlSide) ? ctrlSide : (controllable[0] || "home");
@@ -275,6 +276,16 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const iAmManager = controllable.length > 0;
   const stats = view.stats || { possession: [1, 1], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] };
 
+  // Gols por jogador (controller deriva dos eventos; espectador recebe pronto) e capitão (maior OVR do XI).
+  const goalsBy = view.goalsBy || (() => {
+    const m = {};
+    for (const e of view.events || []) if (e.type === "goal" && e.scorerId != null) m[e.scorerId] = (m[e.scorerId] || 0) + 1;
+    return m;
+  })();
+  const captainOf = (team) => (team?.squad || []).reduce((b, p) => (!b || p.ovr > b.ovr ? p : b), null)?.id;
+  const homeCaptainId = captainOf(home);
+  const awayCaptainId = captainOf(away);
+
   return (
     <div className={"matchlive-full" + (themeColor ? " themed" : "")} style={themeColor ? { "--team": themeColor } : undefined}>
       {/* TOP — placar transmissão */}
@@ -293,31 +304,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         </div>
       </div>
 
-      {/* MAIN — 3 colunas */}
+      {/* MAIN — escalações dos dois lados + campo (estilo transmissão) */}
       <div className="mlf-main">
-        {/* ESQUERDA — elenco (sem reservas) */}
-        <aside className="mlf-left">
-          {controllable.length > 1 && (
-            <div className="mlf-sidesel">
-              {controllable.map((s) => (
-                <button key={s} className={`mlf-sidetab ${ctrlSide === s ? "sel" : ""}`} style={{ "--c": colorOf(s) }} onClick={() => setCtrlSide(s)}>
-                  {s === "home" ? homeName : awayName}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="mlf-label">{iAmManager ? "Seu elenco · energia" : `${sideName} · energia`}</div>
-          <div className="mlf-squad">
-            {view.tokens[mySide].map((t) => (
-              <div key={t.id} className={`mlf-pl static ${t.out ? "expelled" : ""}`}>
-                <span className="mlf-pl-num">{t.out ? "🟥" : t.num}</span>
-                <span className="mlf-pl-body">
-                  <span className="mlf-pl-name">{lastName(t.name)}</span>
-                  <span className="mlf-energy"><i style={{ width: `${t.stamina ?? 100}%`, background: stamColor(t.stamina ?? 100) }} /></span>
-                </span>
-              </div>
-            ))}
-          </div>
+        <aside className="mlf-side">
+          <LineupPanel name={homeName} color={homeColor} formationName={home.lineup?.formation?.name}
+            tokens={view.tokens.home} captainId={homeCaptainId} goalsBy={goalsBy} />
         </aside>
 
         {/* CENTRO — campo */}
@@ -327,10 +318,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <CineOverlay cine={view.cinematic} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
         </div>
 
-        {/* DIREITA — tática ao vivo */}
-        <aside className="mlf-right-panel">
-          <div className="mlf-label team">Tática ao vivo — {sideName}</div>
-          <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} />
+        <aside className="mlf-side">
+          <LineupPanel name={awayName} color={awayColor} formationName={away.lineup?.formation?.name}
+            tokens={view.tokens.away} captainId={awayCaptainId} goalsBy={goalsBy} mirror />
         </aside>
       </div>
 
@@ -343,19 +333,46 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       </div>
 
       {/* CONTROLES */}
-      {controller ? (
-        <div className="mlf-controls">
-          <button className={`mlf-cbtn ${paused ? "resume" : ""}`} onClick={togglePause}>
-            <span>{paused ? "▶" : "❚❚"}</span> {paused ? "Retomar jogo" : "Pausa técnica"}
-          </button>
-          <div className="mlf-spacer" />
-          <span className="mlf-speed-label">Velocidade</span>
-          <div className="mlf-speed">
-            {SPEEDS.map((s) => <button key={s} className={`mlf-spd ${speed === s ? "sel" : ""}`} onClick={() => setSpeed(s)}>{s}×</button>)}
+      <div className="mlf-controls">
+        {iAmManager && (
+          <button className="mlf-cbtn ghost" onClick={() => setTacticsOpen(true)}>⚙ Tática</button>
+        )}
+        {controller ? (
+          <>
+            <button className={`mlf-cbtn ${paused ? "resume" : ""}`} onClick={togglePause}>
+              <span>{paused ? "▶" : "❚❚"}</span> {paused ? "Retomar jogo" : "Pausa técnica"}
+            </button>
+            <div className="mlf-spacer" />
+            <span className="mlf-speed-label">Velocidade</span>
+            <div className="mlf-speed">
+              {SPEEDS.map((s) => <button key={s} className={`mlf-spd ${speed === s ? "sel" : ""}`} onClick={() => setSpeed(s)}>{s}×</button>)}
+            </div>
+          </>
+        ) : (
+          <span className="ml-spectating">Assistindo ao vivo — o anfitrião comanda o relógio.</span>
+        )}
+      </div>
+
+      {/* TÁTICA — overlay (mantém o controle ao vivo sem ocupar a tela toda) */}
+      {tacticsOpen && iAmManager && (
+        <div className="mlf-tactics-overlay" onClick={() => setTacticsOpen(false)}>
+          <div className="mlf-tactics-card" onClick={(e) => e.stopPropagation()}>
+            <div className="mlf-tactics-head">
+              <span className="mlf-label team">Tática ao vivo — {sideName}</span>
+              <button className="mlf-tactics-close" onClick={() => setTacticsOpen(false)}>✕</button>
+            </div>
+            {controllable.length > 1 && (
+              <div className="mlf-sidesel">
+                {controllable.map((s) => (
+                  <button key={s} className={`mlf-sidetab ${ctrlSide === s ? "sel" : ""}`} style={{ "--c": colorOf(s) }} onClick={() => setCtrlSide(s)}>
+                    {s === "home" ? homeName : awayName}
+                  </button>
+                ))}
+              </div>
+            )}
+            <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} />
           </div>
         </div>
-      ) : (
-        <div className="ml-spectating">Assistindo ao vivo — o anfitrião comanda o relógio.</div>
       )}
 
       {/* INTERVALO — ambos prontos (com válvula de segurança do anfitrião) */}
@@ -367,7 +384,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
             <div className="ml-ht-card">
               <span className="pen-eyebrow">Intervalo</span>
               <div className="ml-ht-score">{homeName} <b>{view.score[0]}</b> — <b>{view.score[1]}</b> {awayName}</div>
-              <p className="ml-ht-text">Ajuste sua tática (painel à direita) e confirme para começar o 2º tempo.</p>
+              <p className="ml-ht-text">Ajuste sua tática (botão ⚙ Tática) e confirme para começar o 2º tempo.</p>
 
               {controllable.length === 0 ? (
                 <div className="waiting">Aguardando os técnicos confirmarem…</div>
@@ -401,6 +418,48 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       )}
     </div>
   );
+}
+
+// Painel de escalação de um lado: nº, nome, capitão, gols (bolinhas), cartões e energia.
+// mirror=true espelha (visitante à direita), igual a uma transmissão.
+function LineupPanel({ name, color, formationName, tokens, captainId, goalsBy, mirror }) {
+  return (
+    <div className={`mlf-lineup ${mirror ? "mirror" : ""}`} style={{ "--c": color }}>
+      <div className="mlf-lineup-head">
+        <span className="mlf-lineup-name">{name}</span>
+        {formationName && <span className="mlf-lineup-form">{formationName}</span>}
+      </div>
+      <div className="mlf-lineup-list">
+        {tokens.map((t) => {
+          const goals = goalsBy[t.id] || 0;
+          return (
+            <div key={t.id} className={`mlf-lp ${t.out ? "out" : ""}`}>
+              <span className="mlf-lp-num">{t.num}</span>
+              <span className="mlf-lp-body">
+                <span className="mlf-lp-nameline">
+                  <span className="mlf-lp-name">{lastName(t.name)}</span>
+                  {t.id === captainId && <span className="mlf-cap" title="Capitão">C</span>}
+                  {goals > 0 && <GoalBalls n={goals} />}
+                  {t.out ? (
+                    <span className="mlf-card red" title="Expulso" />
+                  ) : (t.yellow || 0) >= 1 ? (
+                    <span className="mlf-card yellow" title="Cartão amarelo" />
+                  ) : null}
+                </span>
+                <span className="mlf-energy"><i style={{ width: `${t.stamina ?? 100}%`, background: stamColor(t.stamina ?? 100) }} /></span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Bolinhas de gol em frente ao nome (uma por gol; vira "⚽ ×N" a partir de 3).
+function GoalBalls({ n }) {
+  if (n >= 3) return <span className="mlf-goals" title={`${n} gols`}>⚽<b>×{n}</b></span>;
+  return <span className="mlf-goals" title={`${n} gol${n > 1 ? "s" : ""}`}>{"⚽".repeat(n)}</span>;
 }
 
 // Overlay cinematográfico central (GOOOL pulsando, defesaça, cartões, pênalti).
@@ -510,12 +569,15 @@ function Seg({ label, options, value, onPick }) {
 }
 
 function compact(s) {
-  const tk = (t) => ({ id: t.id, num: t.num, x: Math.round(t.x * 10) / 10, y: Math.round(t.y * 10) / 10, pos: t.pos, name: t.name, stamina: Math.round(t.stamina), out: t.out });
+  // Tally de gols por jogador (todos os eventos), p/ o espectador desenhar as bolinhas.
+  const goalsBy = {};
+  for (const e of s.events) if (e.type === "goal" && e.scorerId != null) goalsBy[e.scorerId] = (goalsBy[e.scorerId] || 0) + 1;
+  const tk = (t) => ({ id: t.id, num: t.num, x: Math.round(t.x * 10) / 10, y: Math.round(t.y * 10) / 10, pos: t.pos, name: t.name, stamina: Math.round(t.stamina), out: t.out, yellow: t.yellow || 0 });
   return {
     minute: s.minute, phase: s.phase, score: s.score, ball: { x: Math.round(s.ball.x * 10) / 10, y: Math.round(s.ball.y * 10) / 10 },
     tokens: { home: s.tokens.home.map(tk), away: s.tokens.away.map(tk) },
     carrier: s.carrier, cinematic: s.cinematic, men: s.men, ready: s.ready,
-    lastEvent: s.lastEvent, events: s.events.slice(-14), tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats,
+    lastEvent: s.lastEvent, events: s.events.slice(-14), tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats, goalsBy,
   };
 }
 

@@ -1098,7 +1098,7 @@ body {
 .matchlive-full.themed .mlf-score-nums i { color: var(--team); }
 .matchlive-full.themed .mlf-spd.sel { background: var(--team); color: #fff; }
 .matchlive-full.themed .mlf-seg-item.sel { background: var(--team); }
-.matchlive-full.themed .mlf-right-panel { border-left-color: color-mix(in srgb, var(--team) 45%, var(--dark3)); background: color-mix(in srgb, var(--team) 5%, transparent); }
+.matchlive-full.themed .mlf-controls { border-top-color: color-mix(in srgb, var(--team) 35%, var(--dark3)); }
 .matchlive-full.themed .mlf-slider input[type="range"] { accent-color: var(--team); }
 
 /* polimento da tática ao vivo */
@@ -1501,11 +1501,13 @@ body {
 .mlf-score-nums i { font-size: 26px; color: var(--gold); font-style: normal; }
 .mlf-clock { display: flex; align-items: center; gap: 6px; justify-content: center; margin-top: 4px; font-family: var(--head); font-weight: 600; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--red); }
 
-.mlf-main { flex: 1; display: grid; grid-template-columns: 270px 1fr 290px; min-height: 0; }
-.mlf-left { padding: 18px; border-right: 1px solid var(--dark3); overflow-y: auto; }
-.mlf-right-panel { padding: 18px; border-left: 1px solid var(--dark3); overflow-y: auto; }
-.mlf-center { position: relative; padding: 20px; display: flex; align-items: center; justify-content: center; min-width: 0; }
-.mlf-center .pitch2d { width: 100%; max-width: 820px; }
+.mlf-main { flex: 1; display: grid; grid-template-columns: 236px 1fr 236px; min-height: 0; }
+.mlf-side { padding: 14px 12px; overflow-y: auto; }
+.mlf-main > .mlf-side:first-child { border-right: 1px solid var(--dark3); }
+.mlf-main > .mlf-side:last-child { border-left: 1px solid var(--dark3); }
+.mlf-center { position: relative; padding: 14px; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; }
+/* o campo escala pela ALTURA disponível (largura segue o 3:2), p/ caber sem scroll */
+.mlf-center .pitch2d { width: auto; height: 100%; max-width: 100%; max-height: 100%; }
 
 .mlf-label { font-family: var(--head); font-weight: 600; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
 .mlf-label.gold { color: var(--gold); }
@@ -1520,8 +1522,35 @@ body {
 .mlf-pl-num { font-family: var(--display); font-size: 15px; color: var(--gold); min-width: 22px; text-align: center; }
 .mlf-pl-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .mlf-pl-name { font-family: var(--head); font-weight: 600; font-size: 13px; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mlf-energy { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.mlf-energy { height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; display: flex; }
 .mlf-energy i { display: block; height: 100%; transition: width 0.4s ease; }
+
+/* ---- escalações dos dois lados (estilo transmissão) ---- */
+.mlf-lineup { display: flex; flex-direction: column; }
+.mlf-lineup-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 9px; margin-bottom: 7px; border-bottom: 1px solid var(--dark3); }
+.mlf-lineup-name { font-family: var(--display); font-size: 15px; color: var(--c, var(--paper)); text-transform: uppercase; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mlf-lineup-form { font-family: var(--head); font-weight: 700; font-size: 10px; letter-spacing: 0.08em; color: var(--muted); flex-shrink: 0; }
+.mlf-lineup-list { display: flex; flex-direction: column; gap: 2px; }
+.mlf-lp { display: flex; align-items: center; gap: 9px; padding: 5px 4px; border-radius: 7px; }
+.mlf-lp:hover { background: rgba(255, 255, 255, 0.03); }
+.mlf-lp.out { opacity: 0.5; }
+.mlf-lp-num { font-family: var(--display); font-size: 12px; color: #fff; background: var(--c, var(--dark2)); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.mlf-lp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mlf-lp-nameline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mlf-lp-name { font-family: var(--head); font-weight: 600; font-size: 13px; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mlf-cap { font-family: var(--head); font-weight: 800; font-size: 8px; color: var(--gold); border: 1.2px solid var(--gold); border-radius: 3px; padding: 0 2px; line-height: 12px; flex-shrink: 0; }
+.mlf-goals { font-size: 11px; line-height: 1; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 1px; }
+.mlf-goals b { font-family: var(--head); font-size: 10px; color: var(--paper); }
+.mlf-card { width: 9px; height: 13px; border-radius: 2px; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+.mlf-card.yellow { background: #f5c518; }
+.mlf-card.red { background: var(--red); }
+/* visitante espelhado: tudo alinhado à direita (sem align-items: flex-end, que
+   colapsaria a largura da barra de energia) */
+.mlf-lineup.mirror .mlf-lineup-head { flex-direction: row-reverse; }
+.mlf-lineup.mirror .mlf-lp { flex-direction: row-reverse; }
+.mlf-lineup.mirror .mlf-lp-nameline { flex-direction: row-reverse; }
+.mlf-lineup.mirror .mlf-lp-name { text-align: right; }
+.mlf-lineup.mirror .mlf-energy { justify-content: flex-end; }
 .mlf-bench { display: flex; align-items: center; gap: 10px; background: var(--dark2); border: 1.5px solid transparent; border-radius: 8px; padding: 8px 10px; cursor: pointer; width: 100%; text-align: left; }
 .mlf-bench:disabled { opacity: 0.55; cursor: default; }
 .mlf-bench-meta { font-family: var(--head); font-weight: 500; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -1546,6 +1575,16 @@ body {
 .mlf-controls { display: flex; align-items: center; gap: 12px; background: var(--ink); padding: 14px 28px; border-top: 1px solid var(--dark3); }
 .mlf-cbtn { display: flex; align-items: center; gap: 8px; border: none; background: var(--dark2); border-radius: 9px; padding: 13px 18px; font-family: var(--display); font-size: 15px; color: var(--paper); text-transform: uppercase; cursor: pointer; }
 .mlf-cbtn.resume { background: var(--green); color: var(--ink); }
+.mlf-cbtn.ghost { background: transparent; border: 1.5px solid var(--dark3); }
+.mlf-cbtn.ghost:hover { border-color: var(--gold); color: var(--gold); }
+
+/* TÁTICA — overlay */
+.mlf-tactics-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.62); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.mlf-tactics-card { background: var(--ink); border: 1px solid var(--dark3); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); }
+.mlf-tactics-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.mlf-tactics-head .mlf-label { margin: 0; }
+.mlf-tactics-close { background: var(--dark2); border: none; color: var(--paper); width: 30px; height: 30px; border-radius: 7px; cursor: pointer; font-size: 14px; flex-shrink: 0; }
+.mlf-tactics-close:hover { background: var(--red); }
 .mlf-spacer { flex: 1; }
 .mlf-speed-label { font-family: var(--head); font-weight: 600; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .mlf-speed { display: flex; gap: 4px; background: var(--dark2); border-radius: 8px; padding: 4px; }
@@ -1554,9 +1593,9 @@ body {
 
 @media (max-width: 900px) {
   .matchlive-full { height: auto; min-height: 100dvh; overflow: visible; }
-  .mlf-main { grid-template-columns: 1fr; }
-  .mlf-center { order: -1; }
-  .mlf-left, .mlf-right-panel { border: none; border-top: 1px solid var(--dark3); overflow: visible; }
+  .mlf-main { grid-template-columns: 1fr 1fr; }
+  .mlf-center { order: -1; grid-column: 1 / -1; }
+  .mlf-main > .mlf-side:first-child, .mlf-main > .mlf-side:last-child { border: none; border-top: 1px solid var(--dark3); overflow: visible; }
   .mlf-score-nums span { font-size: 36px; }
   .mlf-team-name { font-size: 16px; }
   .mlf-team-sub { display: none; }
@@ -1576,7 +1615,7 @@ body {
   opacity: 0.85;
 }
 .dev-fab:hover { opacity: 1; }
-.dev-app { padding: 0; align-items: stretch; }
+.dev-app { padding: 0; align-items: stretch; height: 100dvh; overflow: hidden; }
 .dev-bar {
   position: sticky; top: 0; z-index: 50;
   display: flex; align-items: center; gap: 12px;
@@ -1594,7 +1633,9 @@ body {
   background: var(--red); color: var(--paper); border: none; border-radius: 8px;
   padding: 9px 14px; cursor: pointer;
 }
-.dev-stage { padding: 0; }
+.dev-stage { padding: 0; flex: 1; min-height: 0; overflow: auto; }
+/* a partida ao vivo preenche exatamente o palco do DEV (descontada a barra) — sem scroll */
+.dev-stage > .matchlive-full { height: 100%; }
 .dev-stage .app { padding: 18px 14px 30px; }
 .dev-stage .app-full { padding: 0; }
 
