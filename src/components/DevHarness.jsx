@@ -12,8 +12,13 @@ import { WORLDCUP_SQUADS } from "../data/worldcupSquads.js";
 import { createTournament, applyMatchResult, nextMatch, allMatches } from "../engine/tournament.js";
 import { simulateMatch } from "../engine/match.js";
 
-// Garante dados para o modo dev mesmo offline (semeia as seleções estáticas se vazio).
-if (!isSquadsLoaded()) setSquads(WORLDCUP_SQUADS);
+// Semeia as seleções estáticas SÓ quando o modo dev é aberto e ainda não há dados
+// reais do Supabase. NÃO pode rodar em escopo de módulo: como App.jsx importa o
+// DevHarness no topo, isso marcaria _loaded=true e faria loadSquads() pular o fetch
+// do Supabase — o app inteiro acabava usando o dataset estático de 12 jogadores.
+function seedDevSquads() {
+  if (!isSquadsLoaded()) setSquads(WORLDCUP_SQUADS);
+}
 
 const SCREENS = [
   ["home", "Home (início)"],
@@ -64,6 +69,7 @@ function reduceDraft(d, intent) {
 }
 
 export default function DevHarness({ onExit }) {
+  seedDevSquads(); // semeia dados estáticos só agora (dev aberto), nunca no load do app
   const [screen, setScreen] = useState("home");
 
   // estados mock interativos

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { findFormation, formationsFor, ROLE_LABEL } from "../engine/formations.js";
-import { SQUAD_BY_ID } from "../data/squads.js";
+import { SQUAD_BY_ID, rollableSquads } from "../data/squads.js";
 import { compatibleSlots, isPickable, freePlayers } from "../engine/draft7a0.js";
 import { teamRatings } from "../engine/match.js";
 import { POS_COLOR } from "../engine/players.js";
+import { Flag } from "./bits.jsx";
 
 const POS_RANK = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
 
@@ -23,6 +24,9 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
 
   const [selPlayer, setSelPlayer] = useState(null); // jogador escolhido na lista
   const [moveFrom, setMoveFrom] = useState(null); // slot de origem ao mover
+  const [rolling, setRolling] = useState(false); // animação de roleta do sorteio
+  const [flickSquad, setFlickSquad] = useState(null); // seleção piscando durante a roleta
+  const spinRef = useRef(null);
 
   const filledCount = mgr ? Object.values(mgr.slots).filter(Boolean).length : 0;
   const filledPlayers = useMemo(() => {
@@ -38,6 +42,42 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
     actions.dispatchDraft({ ...intent, managerId: editId });
   }
 
+  // Roleta de sorteio: aplica o reroll e pisca seleções/anos aleatórios
+  // desacelerando até revelar a seleção realmente sorteada.
+  function reroll(kind) {
+    if (rolling || mgr.rerollsLeft <= 0) return;
+    dispatch({ kind: "reroll", rerollKind: kind });
+    setSelPlayer(null);
+    setMoveFrom(null);
+    let pool = rollableSquads(draft.pool);
+    if (!pool.length) pool = Object.values(SQUAD_BY_ID);
+    if (!pool.length) return;
+    clearTimeout(spinRef.current);
+    setRolling(true);
+    let i = 0;
+    const steps = 16;
+    const tick = () => {
+      setFlickSquad(pool[Math.floor(Math.random() * pool.length)]);
+      i++;
+      if (i >= steps) {
+        setRolling(false);
+        setFlickSquad(null);
+        return;
+      }
+      const t = i / steps;
+      spinRef.current = setTimeout(tick, 45 + Math.round(t * t * 150)); // desacelera no fim
+    };
+    tick();
+  }
+
+  // troca de técnico (modo local) ou desmontagem cancela a roleta
+  useEffect(() => {
+    clearTimeout(spinRef.current);
+    setRolling(false);
+    setFlickSquad(null);
+    return () => clearTimeout(spinRef.current);
+  }, [editId]);
+
   // ---- turn timer (do técnico em foco, se não terminou) ----
   const [secs, setSecs] = useState(draft.turnTimer || 30);
   const tickRef = useRef();
@@ -46,7 +86,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filledCount, editId]);
   useEffect(() => {
-    if (!mgr || mgr.done) return;
+    if (!mgr || mgr.done || rolling) return; // pausa o relógio durante a roleta
     clearInterval(tickRef.current);
     tickRef.current = setInterval(() => {
       setSecs((s) => {
@@ -59,7 +99,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
     }, 1000);
     return () => clearInterval(tickRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mgr?.done, editId, filledCount]);
+  }, [mgr?.done, editId, filledCount, rolling]);
 
   if (!mgr) return <div className="screen draft7"><p className="muted center">Carregando draft…</p></div>;
 
@@ -134,49 +174,67 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
           ) : (
             <>
               <FormationBar mgr={mgr} formation={formation} canChange={filledCount === 0} onChange={(name) => dispatch({ kind: "formation", formation: name })} />
-              {curSquad && (
-                <div className="d7-rolled">
-                  <span className="d7-rolled-eyebrow">Saiu</span>
-                  <div className="d7-rolled-team">
-                    <span className="d7-rolled-flag">{curSquad.flag}</span>
-                    <span className="d7-rolled-country">{curSquad.country}</span>
+              {(() => {
+                const show = rolling && flickSquad ? flickSquad : curSquad;
+                if (!show) return null;
+                return (
+                  <div className={`d7-rolled ${rolling ? "rolling" : ""}`}>
+                    <span className="d7-rolled-eyebrow">{rolling ? "Sorteando…" : "Saiu"}</span>
+                    <div className="d7-rolled-team">
+                      <Flag iso2={show.iso2} src={show.flagSrc} emoji={show.flag} className="d7-rolled-flag" />
+                      <span className="d7-rolled-country">{show.country}</span>
+                    </div>
+                    <div className="d7-rolled-cup">Copa {show.year}</div>
                   </div>
-                  <div className="d7-rolled-cup">Copa {curSquad.year}</div>
-                </div>
-              )}
+                );
+              })()}
               <div className="d7-reroll-label">Não curtiu? Re-sorteie · {mgr.rerollsLeft} restante(s)</div>
               <div className="d7-reroll">
-                <button className="d7-reroll-btn" disabled={mgr.rerollsLeft <= 0} onClick={() => dispatch({ kind: "reroll", rerollKind: "team" })}>↺ Outra seleção</button>
-                <button className="d7-reroll-btn" disabled={mgr.rerollsLeft <= 0} onClick={() => dispatch({ kind: "reroll", rerollKind: "cup" })}>↺ Outra copa</button>
+                <button className="d7-reroll-btn" disabled={rolling || mgr.rerollsLeft <= 0} onClick={() => reroll("country")}>↺ Outra seleção</button>
+                <button className="d7-reroll-btn" disabled={rolling || mgr.rerollsLeft <= 0} onClick={() => reroll("cup")}>↺ Outra copa</button>
               </div>
 
-              <div className="d7-pick-label">Escolha um jogador</div>
-              <div className="d7-list">
-                {rollFree.length === 0 && <div className="d7-list-empty muted">Todos dessa seleção já foram levados. Re-sorteie!</div>}
-                {rollFree
-                  .slice()
-                  .sort((a, b) => POS_RANK[a.pos] - POS_RANK[b.pos])
-                  .map((p) => {
-                    const pickable = isPickable(p, formation, mgr.slots, taken);
-                    return (
-                      <button
-                        key={p.id}
-                        className={`d7-row ${selPlayer?.id === p.id ? "sel" : ""} ${pickable ? "" : "off"}`}
-                        disabled={!pickable}
-                        onClick={() => pickPlayer(p)}
-                      >
-                        <span className="d7-row-pos">{p.detail.split("-")[0]}</span>
-                        <span className="d7-row-name">{p.name}</span>
-                        <span className="d7-row-role">{shortRole(p)}</span>
-                        {!hideRatings && <span className="d7-row-ovr">{p.ovr}</span>}
-                        {hideRatings && <span className="d7-row-ovr hidden">??</span>}
-                      </button>
-                    );
-                  })}
-              </div>
-              <button className="btn btn-primary btn-block btn-lg d7-escalar" disabled={!selPlayer || compat.length === 0} onClick={escalar}>
-                {selPlayer ? `Escalar ${selPlayer.name}` : "Escolha um jogador"}
-              </button>
+              {rolling ? (
+                <div className="d7-rolling-msg">Sorteando…</div>
+              ) : (
+                <>
+                  <div className="d7-pick-label">
+                    Escolha um jogador
+                    {rollFree.length > 0 && <span className="d7-pick-count">{rollFree.length} disponíveis</span>}
+                  </div>
+                  <div className="d7-list">
+                    {rollFree.length === 0 && <div className="d7-list-empty muted">Todos dessa seleção já foram levados. Re-sorteie!</div>}
+                    {rollFree
+                      .slice()
+                      .sort((a, b) => {
+                        const pa = isPickable(a, formation, mgr.slots, taken) ? 0 : 1;
+                        const pb = isPickable(b, formation, mgr.slots, taken) ? 0 : 1;
+                        if (pa !== pb) return pa - pb;
+                        if (a.pos !== b.pos) return POS_RANK[a.pos] - POS_RANK[b.pos];
+                        return b.ovr - a.ovr;
+                      })
+                      .map((p) => {
+                        const pickable = isPickable(p, formation, mgr.slots, taken);
+                        return (
+                          <button
+                            key={p.id}
+                            className={`d7-row ${selPlayer?.id === p.id ? "sel" : ""} ${pickable ? "" : "off"}`}
+                            disabled={!pickable}
+                            onClick={() => pickPlayer(p)}
+                          >
+                            <span className="d7-row-name">{p.name}</span>
+                            <span className="d7-row-role">{posLabel(p)}</span>
+                            {!hideRatings && <span className="d7-row-ovr">{p.ovr}</span>}
+                            {hideRatings && <span className="d7-row-ovr hidden">??</span>}
+                          </button>
+                        );
+                      })}
+                  </div>
+                  <button className="btn btn-primary btn-block btn-lg d7-escalar" disabled={!selPlayer || compat.length === 0} onClick={escalar}>
+                    {selPlayer ? `Escalar ${selPlayer.name}` : "Escolha um jogador"}
+                  </button>
+                </>
+              )}
             </>
           )}
         </div>
@@ -217,7 +275,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
                   <span className="d7-box-role">{slot.role}</span>
                   <span className="d7-box-name">{p ? p.name : "—"}</span>
                   {p && !hideRatings && <span className="d7-box-ovr">{p.ovr}</span>}
-                  {p && hideRatings && <span className="d7-box-ovr">{p.flag}</span>}
+                  {p && hideRatings && <Flag iso2={p.iso2} src={p.flagSrc} emoji={p.flag} className="d7-box-flag" />}
                 </div>
               );
             })}
@@ -239,6 +297,12 @@ function playerOf(id) {
 
 function shortRole(p) {
   return p.pos === "GK" ? "GOL" : p.pos === "DEF" ? "ZAG" : p.pos === "MID" ? "MEI" : "ATA";
+}
+
+// Posições jogáveis do jogador (ex.: "MEI|PE|CA"). Usa os roles reais do banco;
+// cai no grupo amplo se não houver (dados estáticos do modo dev).
+function posLabel(p) {
+  return p.roles && p.roles.length ? p.roles.join("|") : shortRole(p);
 }
 
 function FormationBar({ mgr, formation, canChange, onChange }) {
@@ -282,7 +346,9 @@ function DraftPitch({ formation, slots, playerOf, selPlayer, compat, moveFrom, o
         if (p) {
           return (
             <button key={i} className={`d7-slot filled ${moveFrom === i ? "moving" : ""}`} style={{ left, bottom }} onClick={() => onTapSlot(i)}>
-              <span className="d7-disc" style={{ background: POS_COLOR[p.pos] }}>{p.flag}</span>
+              <span className="d7-disc" style={{ borderColor: POS_COLOR[p.pos] }}>
+                <Flag iso2={p.iso2} src={p.flagSrc} emoji={p.flag} className="d7-disc-flag" round />
+              </span>
               <span className="d7-disc-name">{lastName(p.name)}</span>
             </button>
           );

@@ -26,19 +26,41 @@ export function createManagerDraft(formation = DEFAULT_FORMATION, difficulty = "
 }
 
 // Sorteia uma seleção do "poolName" (todas/fortes/lendas).
-// kind: "team" (qualquer) | "cup" (outro ano do mesmo país, se houver).
+// kind:
+//   "team"    → país aleatório, qualquer ano (sorteio inicial e auto-pick)
+//   "cup"     → "Outra copa": mesmo país, OUTRO ano
+//   "country" → "Outra seleção": mesmo ano, OUTRO país
 export function rollSquad(currentSquadId, kind = "team", poolName = "all") {
   let pool = rollableSquads(poolName);
   if (!pool.length) pool = SQUADS;
-  if (kind === "cup" && currentSquadId) {
-    const cur = SQUAD_BY_ID[currentSquadId];
-    const sameCountry = pool.filter((s) => cur && s.code === cur.code && s.id !== cur.id);
-    if (sameCountry.length) pool = sameCountry;
-  } else if (currentSquadId) {
-    const others = pool.filter((s) => s.id !== currentSquadId);
-    if (others.length) pool = others;
+  const cur = currentSquadId ? SQUAD_BY_ID[currentSquadId] : null;
+
+  if (kind === "cup" && cur) {
+    const sameCountry = pool.filter((s) => s.code === cur.code && s.id !== currentSquadId);
+    return rndItem(sameCountry.length ? sameCountry : pool).id;
   }
-  return rndItem(pool).id;
+
+  if (kind === "country" && cur) {
+    const sameYear = pool.filter((s) => s.year === cur.year && s.code !== cur.code);
+    if (sameYear.length) return pickBalancedByCountry(sameYear, currentSquadId);
+    // nenhum outro país nesse ano → cai para país aleatório qualquer ano
+  }
+
+  return pickBalancedByCountry(pool, currentSquadId);
+}
+
+// Sorteio em duas fases para equalizar o peso por PAÍS —
+// sem isso Brasil (20 edições) teria 20× mais chance que Equador (1 edição).
+function pickBalancedByCountry(pool, excludeId) {
+  const byCountry = {};
+  for (const s of pool) {
+    if (s.id === excludeId) continue;
+    (byCountry[s.code] = byCountry[s.code] || []).push(s);
+  }
+  const codes = Object.keys(byCountry);
+  if (!codes.length) return rndItem(pool).id;
+  const code = rndItem(codes);
+  return rndItem(byCountry[code]).id;
 }
 
 // Os jogadores do sorteio atual que ainda estão livres (não em `taken`).
@@ -48,11 +70,19 @@ export function freePlayers(squadId, taken) {
   return (SQUAD_BY_ID[squadId]?.players || []).filter((p) => !set.has(p.id));
 }
 
-// Índices de slots vazios compatíveis com o jogador (mesmo grupo).
+// O jogador encaixa neste slot? Usa player.roles (posições específicas do banco:
+// ZAG, LD, MEI, PE…) quando disponível; cai no grupo amplo (GK/DEF/MID/ATT) para
+// dados estáticos sem roles. ÚNICA fonte de verdade — usada na UI e nas mutações.
+export function playerFitsSlot(player, slot) {
+  if (player.roles && player.roles.length) return player.roles.includes(slot.role);
+  return slot.group === player.pos;
+}
+
+// Índices de slots vazios compatíveis com o jogador.
 export function compatibleSlots(player, formation, slots) {
   const out = [];
   formation.slots.forEach((slot, i) => {
-    if (slots[i] == null && slot.group === player.pos) out.push(i);
+    if (slots[i] == null && playerFitsSlot(player, slot)) out.push(i);
   });
   return out;
 }
@@ -107,7 +137,7 @@ export function applyPick(draft, managerId, playerId, slotIndex) {
   const formation = mgrFormation(mgr);
   const slot = formation.slots[slotIndex];
   if (!slot || mgr.slots[slotIndex] != null) return d; // slot inválido/ocupado
-  if (slot.group !== player.pos) return d; // posição incompatível
+  if (!playerFitsSlot(player, slot)) return d; // posição incompatível
   mgr.slots[slotIndex] = playerId;
   d.taken.push(playerId);
   // próximo sorteio automático
@@ -134,9 +164,9 @@ export function applyMove(draft, managerId, fromIndex, toIndex) {
   const pb = b != null ? playerById(b) : null;
   const slotFrom = formation.slots[fromIndex];
   const slotTo = formation.slots[toIndex];
-  // valida compatibilidade de grupo nos dois sentidos
-  if (slotTo.group !== pa.pos) return d;
-  if (pb && slotFrom.group !== pb.pos) return d;
+  // valida compatibilidade por posição (roles) nos dois sentidos da troca
+  if (!playerFitsSlot(pa, slotTo)) return d;
+  if (pb && !playerFitsSlot(pb, slotFrom)) return d;
   mgr.slots[toIndex] = a;
   if (pb) mgr.slots[fromIndex] = b;
   else delete mgr.slots[fromIndex];
