@@ -28,6 +28,24 @@ export function flagUrl(code) {
 export function isFlagEscudo(v) {
   return typeof v === "string" && v.startsWith("fl:");
 }
+// Converte um emoji de bandeira (indicadores regionais, ex.: 🇧🇷) em código ISO-2 ("br").
+export function flagCodeFromEmoji(s) {
+  if (typeof s !== "string") return null;
+  const cps = [...s];
+  if (cps.length === 2) {
+    const a = cps[0].codePointAt(0), b = cps[1].codePointAt(0);
+    const A = 0x1f1e6, Z = 0x1f1ff;
+    if (a >= A && a <= Z && b >= A && b <= Z) {
+      return String.fromCharCode(97 + (a - A)) + String.fromCharCode(97 + (b - A));
+    }
+  }
+  return null;
+}
+// Devolve o código de bandeira (imagem) de um escudo, seja "fl:br" ou o emoji 🇧🇷.
+export function escudoFlag(v) {
+  if (isFlagEscudo(v)) return v.slice(3);
+  return flagCodeFromEmoji(v);
+}
 
 // Próxima cor livre (não usada por ninguém na sala).
 export function freeColor(usedColors) {
@@ -82,14 +100,14 @@ export function PitchMarks() {
 }
 
 export function Avatar({ emoji, color, size = 40, online }) {
-  const flag = isFlagEscudo(emoji);
+  const fcode = escudoFlag(emoji);
   return (
     <span
       className="avatar"
       style={{ width: size, height: size, background: `${color}22`, borderColor: `${color}88`, fontSize: size * 0.5 }}
     >
-      {flag ? (
-        <img className="avatar-flag" src={flagUrl(emoji.slice(3))} alt="" loading="lazy" />
+      {fcode ? (
+        <img className="avatar-flag" src={flagUrl(fcode)} alt="" loading="lazy" />
       ) : (
         <span aria-hidden>{emoji}</span>
       )}

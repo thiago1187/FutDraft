@@ -1,10 +1,23 @@
-// Campo 2D estilo "futebol de botões" — discos numerados + bola.
-// Recebe o estado do motor liveMatch (tokens + bola). Posições em 0..100.
+// Campo 2D — discos + bola, com portador destacado, trajetória de chute, goleiro
+// mergulhando, rede do gol e expulsos. Lê tokens/ball/cinematic do motor liveMatch.
 
-export default function Pitch2D({ tokens, ball, homeColor, awayColor, lastEvent, homeName, awayName }) {
+export default function Pitch2D({ tokens, ball, homeColor, awayColor, cinematic, carrier, homeName, awayName }) {
+  const cine = cinematic && (cinematic.type === "shot" || cinematic.type === "penalty") ? cinematic : null;
+  const defSide = cine ? (cine.side === "home" ? "away" : "home") : null;
+  const goalBulge = cinematic && cinematic.type === "shot" && cinematic.outcome === "goal" ? cinematic.side : null;
+
+  // trajetória da bola no chute
+  let shot = null;
+  if (cine) {
+    const goalX = cine.side === "home" ? 98 : 2;
+    let ex = goalX, ey = clamp(cine.aimY ?? 50, 8, 92);
+    if (cine.outcome === "wide" || cine.outcome === "over") { ex = cine.side === "home" ? 103 : -3; ey = (cine.aimY ?? 50) < 50 ? 22 : 78; }
+    else if (cine.outcome === "save") { ex = cine.side === "home" ? 93 : 7; }
+    shot = { fx: cine.fromX ?? ball.x, fy: cine.fromY ?? ball.y, ex, ey, id: cine.id, dur: cine.type === "penalty" ? 0.6 : 0.42 };
+  }
+
   return (
     <div className="pitch2d">
-      {/* linhas do campo */}
       <div className="p2-line-mid" />
       <div className="p2-circle" />
       <div className="p2-spot" />
@@ -12,66 +25,48 @@ export default function Pitch2D({ tokens, ball, homeColor, awayColor, lastEvent,
       <div className="p2-box p2-box-r" />
       <div className="p2-area p2-area-l" />
       <div className="p2-area p2-area-r" />
+      {/* redes */}
+      <div className={`p2-net p2-net-l ${goalBulge === "away" ? "bulge" : ""}`} key={"nl" + (goalBulge === "away" ? cinematic.id : 0)} />
+      <div className={`p2-net p2-net-r ${goalBulge === "home" ? "bulge" : ""}`} key={"nr" + (goalBulge === "home" ? cinematic.id : 0)} />
 
       {/* jogadores */}
-      {tokens.home.map((t) => (
-        <Disc key={"h" + t.id} t={t} color={t.pos === "GK" ? "#C7A24A" : homeColor} ink={t.pos === "GK"} />
+      {tokens.home.filter((t) => !t.out).map((t) => (
+        <Disc key={"h" + t.id} t={t} color={t.pos === "GK" ? "#C7A24A" : homeColor} ink={t.pos === "GK"}
+          carrier={carrier?.side === "home" && tokens.home[carrier.idx]?.id === t.id}
+          dive={defSide === "home" && t.pos === "GK" ? cine : null} />
       ))}
-      {tokens.away.map((t) => (
-        <Disc key={"a" + t.id} t={t} color={t.pos === "GK" ? "#1C1A17" : awayColor} ink={false} />
+      {tokens.away.filter((t) => !t.out).map((t) => (
+        <Disc key={"a" + t.id} t={t} color={t.pos === "GK" ? "#1C1A17" : awayColor} ink={false}
+          carrier={carrier?.side === "away" && tokens.away[carrier.idx]?.id === t.id}
+          dive={defSide === "away" && t.pos === "GK" ? cine : null} />
       ))}
 
       {/* bola */}
-      <div className="p2-ball" style={{ left: `${ball.x}%`, top: `${ball.y}%` }} />
-
-      {/* lower-third do último lance */}
-      {lastEvent && (
-        <div className="p2-lower">
-          {lastEvent.type === "goal" && <span className="p2-tag gol">⚽ GOL</span>}
-          {lastEvent.type === "save" && <span className="p2-tag save">DEFESA</span>}
-          {lastEvent.type === "corner" && <span className="p2-tag">ESCANTEIO</span>}
-          {lastEvent.type === "whistle" && <span className="p2-tag">🔔</span>}
-          {lastEvent.type === "sub" && <span className="p2-tag sub">⇄</span>}
-          <span className="p2-comm">{commentary(lastEvent, homeName, awayName)}</span>
-        </div>
+      {shot ? (
+        <div key={"shot" + shot.id} className="p2-ball shooting"
+          style={{ "--fx": `${shot.fx}%`, "--fy": `${shot.fy}%`, "--ex": `${shot.ex}%`, "--ey": `${shot.ey}%`, "--dur": `${shot.dur}s` }} />
+      ) : (
+        <div key="ball" className="p2-ball" style={{ left: `${ball.x}%`, top: `${ball.y}%` }} />
       )}
     </div>
   );
 }
 
-function Disc({ t, color, ink }) {
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+function Disc({ t, color, ink, carrier, dive }) {
+  let style = { left: `${t.x}%`, top: `${t.y}%`, background: color, color: ink ? "#1C1A17" : "#fff" };
+  let cls = "p2-disc";
+  if (carrier) cls += " carrier";
+  if (dive) {
+    cls += " dive";
+    style = { ...style, "--dx": `${(dive.gkDir || 1) * 24}px`, "--rot": `${(dive.gkDir || 1) * 32}deg` };
+  }
+  const tired = t.stamina != null && t.stamina < 50;
   return (
-    <div
-      className="p2-disc"
-      style={{
-        left: `${t.x}%`,
-        top: `${t.y}%`,
-        background: color,
-        color: ink ? "#1C1A17" : "#fff",
-      }}
-      title={t.name}
-    >
+    <div className={cls + (tired ? " tired" : "")} style={style} title={t.name}>
       {t.num}
+      {carrier && <span className="p2-carrier-ring" />}
     </div>
   );
-}
-
-function commentary(ev, homeName, awayName) {
-  const team = ev.side === "home" ? homeName : awayName;
-  switch (ev.type) {
-    case "goal":
-      return `${ev.minute}' ${ev.scorer} marca para o ${team}!`;
-    case "save":
-      return `${ev.minute}' Defesaça do goleiro!`;
-    case "shot":
-      return `${ev.minute}' Finalizou para fora.`;
-    case "corner":
-      return `${ev.minute}' Escanteio para o ${team}.`;
-    case "sub":
-      return `${ev.minute}' Sai ${ev.outName}, entra ${ev.inName}.`;
-    case "whistle":
-      return ev.text || "";
-    default:
-      return `${ev.minute}'`;
-  }
 }
