@@ -1629,6 +1629,11 @@ body {
   opacity: 0.85;
 }
 .dev-fab:hover { opacity: 1; }
+/* na partida ao vivo, fica à ESQUERDA do controle de velocidade (não sobrepõe) */
+.app.live-match .dev-fab { right: 270px; bottom: 18px; }
+@media (max-width: 900px) {
+  .app.live-match .dev-fab { right: 14px; bottom: 76px; }
+}
 .dev-app { padding: 0; align-items: stretch; height: 100dvh; overflow: hidden; }
 .dev-bar {
   position: sticky; top: 0; z-index: 50;

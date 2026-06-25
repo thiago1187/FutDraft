@@ -460,7 +460,7 @@ export default function App() {
 
   const liveFull = gstate.phase === "tournament" && gstate.presenting?.mode === "live";
   return (
-    <div className={"app" + (gstate.phase === "lobby" || liveFull ? " app-full" : "")}>
+    <div className={"app" + (gstate.phase === "lobby" || liveFull ? " app-full" : "") + (liveFull ? " live-match" : "")}>
       {gstate.phase === "lobby" && (
         <Lobby
           state={gstate}
