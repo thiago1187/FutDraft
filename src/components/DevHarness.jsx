@@ -114,7 +114,7 @@ export default function DevHarness({ onExit }) {
 
   const tourActions = {
     startLiveMatch: () => setScreen("match"),
-    simulateRound: () => {}, simulateAll: () => setScreen("champion"),
+    simulateNext: () => {}, simulateRound: () => {}, simulateAll: () => setScreen("champion"),
     finishLiveMatch: () => {}, continueAfterMatch: () => {}, claimHost: () => {},
   };
 
