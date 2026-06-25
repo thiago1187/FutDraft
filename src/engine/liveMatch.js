@@ -332,14 +332,26 @@ export function createLiveMatch(home, away, opts = {}) {
     }
   }
 
+  // Sorteia quem leva o cartão, com peso forte p/ zagueiros e meios (faltas táticas).
+  // Se o autor real da falta for de linha e não-atacante, ele tem prioridade.
+  function cardOffender(side, fouler) {
+    const field = state.tokens[side].filter((p) => !p.out && p.pos !== "GK");
+    if (!field.length) return null;
+    if (fouler && !fouler.out && fouler.pos !== "GK" && fouler.pos !== "ATT" && rnd() < 0.7) return fouler;
+    const w = field.map((p) => (p.pos === "DEF" ? 1.0 : p.pos === "MID" ? 0.55 : 0.12));
+    let r = rnd(w.reduce((s, x) => s + x, 0));
+    for (let i = 0; i < field.length; i++) { r -= w[i]; if (r <= 0) return field[i]; }
+    return field[0];
+  }
+
   function doFoul(byside, victim, bp, fouler) {
     state.stats.fouls[idx(byside)]++;
     const att = other(byside);
     // pênalti se a falta foi perto da área do infrator
     const nearBox = bp > 0.80 && rnd() < 0.22;
-    // autor da falta: o marcador mais próximo; senão um jogador de linha
-    let off = fouler && !fouler.out && fouler.pos !== "GK" ? fouler : null;
-    if (!off) off = state.tokens[byside].find((p) => !p.out && p.pos !== "GK");
+    // quem leva o cartão: tende a ser zagueiro/meio (faltas táticas). Atacante quase
+    // nunca — usa o autor real só se ele NÃO for atacante; senão sorteia DEF/MID.
+    const off = cardOffender(byside, fouler);
     const r = rnd();
     const pressao = state.tactics[byside].marking === "pressao";
     if (off && r < (pressao ? 0.07 : 0.04)) {
