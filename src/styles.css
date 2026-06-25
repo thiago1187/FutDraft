@@ -481,8 +481,9 @@ body {
 .roster-team { font-family: var(--head); font-weight: 600; font-size: 16px; color: var(--ink); display: flex; align-items: center; }
 .roster-name { font-family: var(--body); font-size: 12px; color: var(--muted2); display: flex; align-items: center; }
 
-.edit-card { background: var(--cream); }
-.picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 14px; }
+.edit-card { background: var(--cream); overflow: hidden; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 6px; margin-bottom: 14px; }
+.picker-grid.flags { max-height: 220px; overflow-y: auto; padding-right: 2px; }
 .picker-emoji {
   aspect-ratio: 1;
   font-size: 20px;
@@ -1099,9 +1100,12 @@ body {
 .pen-dot.scored { background: var(--green); }
 .pen-dot.missed { border: 2px solid var(--red); }
 .pen-dot.pending { border: 1.5px dashed var(--muted2); }
-.pen-aim { display: flex; gap: 8px; margin-top: 18px; }
-.pen-aim-btn { flex: 1; font-family: var(--display); font-size: 14px; color: var(--paper); background: var(--dark2); border: none; border-radius: 8px; padding: 13px 0; text-transform: uppercase; cursor: pointer; }
+.pen-aim { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.pen-aim-label { width: 100%; font-family: var(--head); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 2px; }
+.pen-aim-btn { flex: 1; font-family: var(--display); font-size: 13px; color: var(--paper); background: var(--dark2); border: none; border-radius: 8px; padding: 13px 0; text-transform: uppercase; cursor: pointer; }
 .pen-aim-btn:active { transform: translateY(1px); }
+.pen-def-btn { background: #1a3a5c; }
+.pen-def-btn:hover { background: #1e4a74; }
 .pen-wait, .pen-done { margin-top: 16px; font-family: var(--body); font-style: italic; color: var(--muted); }
 .pen-done { color: var(--gold); font-style: normal; font-family: var(--display); text-transform: uppercase; }
 

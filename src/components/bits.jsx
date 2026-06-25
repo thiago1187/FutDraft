@@ -15,11 +15,31 @@ export const TEAM_EMOJIS = [
 // Bandeiras (imagens — funcionam em qualquer SO, inclusive Windows) por código ISO-2.
 // Escudo de bandeira é guardado como a string "fl:<código>" (ex.: "fl:br", "fl:gb-eng").
 export const TEAM_FLAGS = [
-  "br", "ar", "fr", "es", "de", "it", "nl", "pt", "be", "uy",
-  "hr", "mx", "us", "co", "cl", "jp", "kr", "sn", "ma", "ng",
-  "gh", "cm", "eg", "pl", "se", "dk", "ch", "ru", "ua", "rs",
-  "at", "tr", "gr", "ie", "pe", "ec", "py", "au", "cr", "ir",
-  "sa", "ca", "no", "gb-eng", "gb-sct", "gb-wls",
+  // Sul-América
+  "br", "ar", "uy", "co", "cl", "pe", "ec", "py", "bo", "ve",
+  // América do Norte e Central
+  "mx", "us", "ca", "cr", "pa", "hn", "gt", "jm", "tt", "cu",
+  // Europa Ocidental
+  "fr", "es", "de", "it", "pt", "nl", "be", "ch", "at", "no",
+  "se", "dk", "fi", "ie", "is", "lu", "cy",
+  // Europa Oriental / Balcãs
+  "pl", "ru", "ua", "rs", "hr", "ro", "cz", "sk", "hu", "bg",
+  "si", "ba", "mk", "al", "me", "ee", "lv", "lt", "by", "md",
+  // Ilhas Britânicas
+  "gb-eng", "gb-sct", "gb-wls",
+  // Turquia / Grécia
+  "tr", "gr",
+  // África do Norte
+  "eg", "ma", "dz", "tn", "ly",
+  // África Subsaariana
+  "ng", "sn", "gh", "cm", "ci", "ml", "gn", "za", "ke", "et",
+  "tz", "ug", "mz", "zm", "ao", "cd", "tg",
+  // Oriente Médio
+  "sa", "ir", "qa", "ae", "jo", "iq", "kw",
+  // Ásia
+  "jp", "kr", "cn", "in", "th", "id", "vn", "ph", "my", "pk",
+  // Oceania
+  "au", "nz",
 ];
 
 export function flagUrl(code) {

@@ -136,20 +136,32 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     const probA = Math.min(0.92, Math.max(0.55, 0.62 + (sa.overall - 70) / 120));
     setPens({ home: [], away: [], probH, probA, turn: "home", done: false, score: [0, 0] });
   }
-  // Dispara o chute: define o lance (mira, se entrou, lado do mergulho) e ANIMA.
-  // O placar só é registrado quando a animação termina (commitKick).
+  // Chute: o jogador escolhe o canto — GK (CPU) mergulha aleatório. Acertou = defesa, errou = gol.
   function kick(aim) {
     setPens((prev) => {
       if (!prev || prev.done || prev.animating) return prev;
       const p = structuredClone(prev);
       const side = p.turn;
-      const prob = side === "home" ? p.probH : p.probA;
-      const adj = aim === "meio" ? -0.05 : 0.03;
-      const scored = Math.random() < Math.min(0.95, prob + adj);
       const dirs = ["cantoE", "meio", "cantoD"];
-      // goleiro: se defendeu, vai no canto da bola; se levou gol, pula pro lado errado
-      const gkDir = scored ? dirs[(dirs.indexOf(aim) + 1 + Math.floor(Math.random() * 2)) % 3] : aim;
+      const gkDir = dirs[Math.floor(Math.random() * dirs.length)];
+      const scored = gkDir !== aim;
       p.lastKick = { aim, scored, gkDir, side, id: (prev.lastKick?.id || 0) + 1 };
+      p.animating = true;
+      if (room) room.broadcast("pens", p);
+      return p;
+    });
+  }
+
+  // Defesa: o jogador escolhe onde mergulhar — cobrador (CPU) chuta aleatório. Acertou = defesa, errou = gol.
+  function defend(gkChoice) {
+    setPens((prev) => {
+      if (!prev || prev.done || prev.animating) return prev;
+      const p = structuredClone(prev);
+      const side = p.turn;
+      const dirs = ["cantoE", "meio", "cantoD"];
+      const aim = dirs[Math.floor(Math.random() * dirs.length)];
+      const scored = gkChoice !== aim;
+      p.lastKick = { aim, scored, gkDir: gkChoice, side, id: (prev.lastKick?.id || 0) + 1 };
       p.animating = true;
       if (room) room.broadcast("pens", p);
       return p;
@@ -288,7 +300,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       )}
 
       {pens && (
-        <Penalties pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} canKick={controller} onKick={kick} onResolve={commitKick} />
+        <Penalties pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} canKick={controller} mySide={mySide} onKick={kick} onDefend={defend} onResolve={commitKick} />
       )}
     </div>
   );
@@ -393,11 +405,10 @@ function isPenDecided(h, a, score) {
 const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
 const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, onKick, onResolve }) {
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, mySide, onKick, onDefend, onResolve }) {
   const lk = pens.lastKick;
   const [phase, setPhase] = useState("idle"); // idle | shoot | result
 
-  // anima quando chega um novo lance; ao fim, registra (só o controlador)
   useEffect(() => {
     if (!pens.animating || !lk) { setPhase("idle"); return; }
     setPhase("shoot");
@@ -413,6 +424,14 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, on
   const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
   const animating = pens.animating && phase !== "idle";
   const showResult = phase === "result" && lk;
+
+  // mySide=null → local mode (controla os dois)
+  // mySide definido → online: compara com quem está chutando
+  const isShooter = !mySide || pens.turn === mySide;
+  const isGoalie  = !!mySide && pens.turn !== mySide;
+
+  const shootingTeamName = shooting === "home" ? homeName : awayName;
+  const defendingTeamName = shooting === "home" ? awayName : homeName;
 
   const dots = (arr, n = 5) => {
     const out = [];
@@ -433,12 +452,10 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, on
         {/* CENA ANIMADA */}
         <div className="pen-scene">
           <div className="pen-grass" />
-          {/* gol */}
           <div className="pen-goalframe">
             <span className="pen-post l" /><span className="pen-post r" /><span className="pen-bar" />
             <span className="pen-mesh" />
           </div>
-          {/* goleiro */}
           <div
             key={"gk" + (lk?.id || 0)}
             className={`pen-keeper ${animating ? "dive" : ""}`}
@@ -447,21 +464,20 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, on
             <span className="pen-kp-arm la" /><span className="pen-kp-arm ra" />
             <span className="pen-kp-head" /><span className="pen-kp-body" />
           </div>
-          {/* bola */}
           <div
             key={"ball" + (lk?.id || 0)}
             className={`pen-ball2 ${animating ? "shot" : ""}`}
             style={{ "--tx": target.x + "%", "--ty": target.y + "%" }}
           />
-          {/* cobrador */}
           <div key={"kik" + (lk?.id || 0)} className={`pen-kicker ${animating ? "kick" : ""}`}>
             <span className="pen-kk-head" /><span className="pen-kk-body" style={{ background: shooterColor }} /><span className="pen-kk-leg" />
           </div>
-          {/* etiqueta */}
           {showResult ? (
             <div className={`pen-flash ${lk.scored ? "goal" : "save"}`}>{lk.scored ? "GOL!" : "DEFENDEU!"}</div>
+          ) : isGoalie ? (
+            <div className="pen-shooting">Defender: <b style={{ color: shooting === "home" ? awayColor : homeColor }}>{defendingTeamName}</b></div>
           ) : (
-            <div className="pen-shooting">Cobrando: <b>{shooting === "home" ? homeName : awayName}</b></div>
+            <div className="pen-shooting">Cobrando: <b>{shootingTeamName}</b></div>
           )}
         </div>
 
@@ -470,13 +486,23 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, on
           <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
         </div>
 
-        {!pens.done && canKick && (
+        {!pens.done && canKick && !pens.animating && isShooter && (
           <div className="pen-aim">
+            <div className="pen-aim-label">Escolha o canto para chutar</div>
             {[["cantoE", "↖ Canto"], ["meio", "↑ Meio"], ["cantoD", "↗ Canto"]].map(([k, l]) => (
-              <button key={k} className="pen-aim-btn" disabled={pens.animating} onClick={() => onKick(k)}>{l}</button>
+              <button key={k} className="pen-aim-btn" onClick={() => onKick(k)}>{l}</button>
             ))}
           </div>
         )}
+        {!pens.done && canKick && !pens.animating && isGoalie && (
+          <div className="pen-aim pen-aim-defend">
+            <div className="pen-aim-label">Escolha onde mergulhar</div>
+            {[["cantoE", "↖ Mergulhar"], ["meio", "↑ Ficar no meio"], ["cantoD", "↗ Mergulhar"]].map(([k, l]) => (
+              <button key={k} className="pen-aim-btn pen-def-btn" onClick={() => onDefend(k)}>{l}</button>
+            ))}
+          </div>
+        )}
+        {!pens.done && canKick && pens.animating && <div className="pen-wait">Cobrando…</div>}
         {!pens.done && !canKick && <div className="pen-wait">{pens.animating ? "Cobrando…" : "Aguardando a cobrança…"}</div>}
         {pens.done && <div className="pen-done">Decidido nos pênaltis!</div>}
       </div>
