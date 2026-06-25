@@ -4,6 +4,7 @@ import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { escudoImg } from "./bits.jsx";
 import Pitch2D from "./Pitch2D.jsx";
+import PostMatch from "./PostMatch.jsx";
 
 const SPEEDS = [1, 2, 4];
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
@@ -44,6 +45,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
   const penResultRef = useRef(null);
+  const finalRef = useRef(null);
   const speedRef = useRef(1);
 
   const homeColor = homeMgr?.color || "#E94E27";
@@ -66,6 +68,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const [paused, setPaused] = useState(false);
   const [ctrlSide, setCtrlSide] = useState(controllable[0] || "home");
   const [pens, setPens] = useState(null);
+  const [finalResult, setFinalResult] = useState(null);
   const [tacticsOpen, setTacticsOpen] = useState(false);
 
   const canControl = (side) => controllable.includes(side);
@@ -122,6 +125,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     const off = room?.onBroadcast?.((event, data) => {
       if (event === "snap") setSnap(data);
       if (event === "pens") setPens(data);
+      if (event === "final" && data?.result) { finalRef.current = data.result; setFinalResult(data.result); }
     });
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,11 +262,14 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     });
   }
   function finalize(result) {
+    // Fim de jogo → mostra o pós-jogo (súmula + corrida de xG + história). Só avança
+    // o torneio quando o anfitrião clica "Continuar". Espectadores recebem a súmula.
     if (finishedRef.current) return;
     finishedRef.current = true;
     cancelAnimationFrame(rafRef.current);
-    if (room) room.broadcast("final", { matchId: match.id });
-    onFinish(result);
+    finalRef.current = result;
+    setFinalResult(result);
+    if (room) room.broadcast("final", { matchId: match.id, result });
   }
 
   const view = controller ? engineRef.current?.state : snap;
@@ -290,6 +297,13 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
 
   return (
     <div className={"matchlive-full" + (themeColor ? " themed" : "")} style={themeColor ? { "--team": themeColor } : undefined}>
+      {/* PÓS-JOGO — súmula completa + corrida de xG + história */}
+      {finalResult?.summary && (
+        <PostMatch
+          summary={finalResult.summary} homeMgr={homeMgr} awayMgr={awayMgr}
+          canFinish={controller} onContinue={() => onFinish(finalRef.current)} onLeave={onLeave}
+        />
+      )}
       {/* TOP — placar transmissão */}
       <div className="mlf-top">
         <div className="mlf-team l">

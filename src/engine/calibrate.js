@@ -103,6 +103,7 @@ function runLive(oH, oA, tacH) {
     reds: s.cards.home.filter((c) => c === "red").length + s.cards.away.filter((c) => c === "red").length,
     yellows: s.events.filter((e) => e.type === "yellow").length,
     pens: s.events.filter((e) => e.type === "goal" && e.pen).length,
+    xg: s.xg[0] + s.xg[1],
     homePoss: s.stats.possession[0] / poss,
     badOT: (s.stats.onTarget[0] > s.stats.shots[0] || s.stats.onTarget[1] > s.stats.shots[1]) ? 1 : 0,
     badGoal: (s.score[0] > s.stats.shots[0] || s.score[1] > s.stats.shots[1]) ? 1 : 0,
@@ -113,13 +114,13 @@ function runLive(oH, oA, tacH) {
 function calibLive() {
   console.log(`\n=== MOTOR AO VIVO (liveMatch.js) — ${N_LIVE} jogos ===`);
   let pass = true;
-  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, Y = 0, P = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0;
+  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, Y = 0, P = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0, XG = 0;
   let possSum = 0, possExtreme = 0;
   const cp = { GK: 0, DEF: 0, MID: 0, ATT: 0 }; let totCards = 0;
   for (let i = 0; i < N_LIVE; i++) {
     const r = runLive(80, 80);
     G += r.gh + r.ga; SH += r.shots; OT += r.onT; CO += r.corners; F += r.fouls;
-    R += r.reds; Y += r.yellows; P += r.pens; badOT += r.badOT; badGoal += r.badGoal;
+    R += r.reds; Y += r.yellows; P += r.pens; badOT += r.badOT; badGoal += r.badGoal; XG += r.xg;
     if (r.hw) HW++; else if (r.aw) AW++;
     possSum += r.homePoss; if (r.homePoss < 0.25 || r.homePoss > 0.75) possExtreme++;
     for (const k in cp) cp[k] += r.cardPos[k]; totCards += r.cards;
@@ -131,6 +132,8 @@ function calibLive() {
   console.log("\n 80x80 (times iguais):");
   pass &= line("Finalizações por time", shotsT.toFixed(1), "8–18", within(shotsT, 8, 18));
   pass &= line("Conversão (gols/chutes)", pctStr(conv), "9%–13%", within(conv, 0.09, 0.13));
+  const xgT = XG / N_LIVE / 2;
+  pass &= line("xG por time (≈ gols)", xgT.toFixed(2), `${(goalsT - 0.3).toFixed(2)}–${(goalsT + 0.6).toFixed(2)}`, within(xgT, goalsT - 0.3, goalsT + 0.6));
   pass &= line("No alvo por time", otT.toFixed(1), "3–7", within(otT, 3, 7));
   pass &= line("Escanteios por time", coT.toFixed(1), "3.5–7", within(coT, 3.5, 7));
   pass &= line("Faltas por time", (F / N_LIVE / 2).toFixed(1), "informativo", true);
