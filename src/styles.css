@@ -1578,6 +1578,23 @@ body {
 .mlf-apply { margin-top: 6px; border: none; border-radius: 8px; padding: 14px; font-family: var(--display); font-size: 16px; text-transform: uppercase; color: #fff; background: var(--dark2); cursor: pointer; }
 .mlf-apply:disabled { opacity: 0.55; cursor: default; }
 
+/* presets de tática (botão rápido) */
+.mlf-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.mlf-preset { font-family: var(--head); font-weight: 600; font-size: 11px; background: var(--dark2); color: var(--muted); border: 1.5px solid transparent; border-radius: 6px; padding: 9px 6px; cursor: pointer; transition: background .12s, color .12s; }
+.mlf-preset:not(:disabled):hover { background: var(--dark3); color: #fff; }
+.mlf-preset.sel { background: var(--dark3); color: #fff; }
+.mlf-preset:disabled { opacity: 0.5; cursor: default; }
+
+/* encaixe estilo × elenco */
+.mlf-synergy { display: flex; flex-direction: column; gap: 6px; background: var(--dark); border: 1px solid var(--dark3); border-radius: 10px; padding: 12px; }
+.mlf-fit { display: flex; align-items: baseline; gap: 8px; font-family: var(--head); }
+.mlf-fit-ico { font-weight: 700; font-size: 13px; width: 14px; flex-shrink: 0; }
+.mlf-fit.good .mlf-fit-ico { color: var(--green); }
+.mlf-fit.warn .mlf-fit-ico { color: var(--gold); }
+.mlf-fit.risk .mlf-fit-ico { color: var(--red); }
+.mlf-fit-aspect { font-weight: 700; font-size: 11px; color: #fff; flex-shrink: 0; }
+.mlf-fit-msg { font-family: var(--body); font-size: 11px; color: var(--muted); line-height: 1.25; }
+
 .mlf-stats { display: flex; flex-direction: column; gap: 7px; background: var(--ink); padding: 14px 28px; border-top: 1px solid var(--dark3); }
 .mlf-statrow { display: flex; align-items: center; gap: 12px; }
 .mlf-stat-h { font-family: var(--display); font-size: 16px; width: 46px; text-align: left; }

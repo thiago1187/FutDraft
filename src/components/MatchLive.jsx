@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createLiveMatch } from "../engine/liveMatch.js";
+import { teamRatings } from "../engine/match.js";
+import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { escudoImg } from "./bits.jsx";
 import Pitch2D from "./Pitch2D.jsx";
 
@@ -370,7 +372,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
                 ))}
               </div>
             )}
-            <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} />
+            <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} ratings={teamRatings((mySide === "home" ? home : away).squad)} />
           </div>
         </div>
       )}
@@ -518,7 +520,7 @@ const POSTURES = [["defensivo", "Def"], ["equilibrado", "Eq"], ["ofensivo", "Ofe
 const LINES = [["baixa", "Baixa"], ["media", "Média"], ["alta", "Alta"]];
 const MARKING = [["leve", "Leve"], ["pressao", "Pressão alta"]];
 
-function TacticsLive({ side, tactics, locked, onApply, sideColor }) {
+function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
   const cur = tactics?.[side] || {};
   const [pending, setPending] = useState(cur);
   // ressincroniza quando troca de lado
@@ -527,10 +529,23 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor }) {
 
   const dirty = ["posture", "line", "build", "marking"].some((k) => pending[k] !== cur[k]);
   function set(k, v) { if (!locked) setPending((p) => ({ ...p, [k]: v })); }
+  function applyPreset(p) { if (!locked) setPending((cur2) => ({ ...cur2, posture: p.posture, line: p.line, marking: p.marking, build: p.build })); }
   const build = pending.build ?? 0.4;
+  const activePreset = matchingPreset(pending);
+  const synergy = computeSynergy(ratings, pending);
 
   return (
     <div className="mlf-tactics">
+      {/* PRESETS rápidos */}
+      <div className="mlf-seg-label">Presets</div>
+      <div className="mlf-presets">
+        {PRESETS.map((p) => (
+          <button key={p.id} className={`mlf-preset ${activePreset?.id === p.id ? "sel" : ""}`} disabled={locked}
+            style={activePreset?.id === p.id ? { borderColor: sideColor, color: sideColor } : undefined}
+            onClick={() => applyPreset(p)}>{p.name}</button>
+        ))}
+      </div>
+
       <Seg label="Postura" options={POSTURES} value={pending.posture} onPick={(v) => set("posture", v)} />
       <Seg label="Linha defensiva" options={LINES} value={pending.line} onPick={(v) => set("line", v)} />
       <div className="mlf-seg-block">
@@ -543,6 +558,21 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor }) {
         </div>
       </div>
       <Seg label="Pressão" options={MARKING} value={pending.marking} onPick={(v) => set("marking", v)} />
+
+      {/* ENCAIXE estilo × elenco */}
+      {synergy.length > 0 && (
+        <div className="mlf-synergy">
+          <div className="mlf-seg-label">Encaixe com seu elenco</div>
+          {synergy.map((s, i) => (
+            <div key={i} className={`mlf-fit ${s.level}`}>
+              <span className="mlf-fit-ico">{s.level === "good" ? "✓" : s.level === "warn" ? "⚠" : "✕"}</span>
+              <span className="mlf-fit-aspect">{s.aspect}</span>
+              <span className="mlf-fit-msg">{s.msg}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <button
         className="mlf-apply"
         disabled={locked || !dirty}

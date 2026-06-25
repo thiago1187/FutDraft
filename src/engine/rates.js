@@ -68,10 +68,18 @@ export function computeLambdas(state) {
   lamB *= 0.97 + (state.tactics.away.build ?? 0.4) * 0.08;
 
   // Linha defensiva: ALTA ganha território (ataca mais) MAS concede contra-ataque nas
-  // costas; BAIXA é bloco fechado (concede menos, cria menos). MÉDIA = neutra.
-  const LINE = { baixa: { self: 0.93, opp: 0.90 }, media: { self: 1, opp: 1 }, alta: { self: 1.06, opp: 1.10 } };
-  const lnA = LINE[state.tactics.home.line] || LINE.media;
-  const lnB = LINE[state.tactics.away.line] || LINE.media;
+  // costas — e esse RISCO ESCALA com a fragilidade da PRÓPRIA defesa (encaixe §4.4:
+  // "linha alta com zaga fraca = brecha amplificada"). BAIXA = bloco fechado.
+  const lineMult = (line, ownDef) => {
+    if (line === "alta") {
+      const frail = clamp((MU - ownDef) / SCALE, 0, 0.7); // defesa abaixo da média → frail>0
+      return { self: 1.06, opp: 1.10 + frail * 0.30 };    // zaga fraca concede MUITO mais
+    }
+    if (line === "baixa") return { self: 0.93, opp: 0.90 };
+    return { self: 1, opp: 1 };
+  };
+  const lnA = lineMult(state.tactics.home.line, defA);
+  const lnB = lineMult(state.tactics.away.line, defB);
   lamA *= lnA.self * lnB.opp;
   lamB *= lnB.self * lnA.opp;
 
