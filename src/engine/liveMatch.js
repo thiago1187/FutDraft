@@ -416,6 +416,18 @@ export function createLiveMatch(home, away, opts = {}) {
       const drain = state.tactics[side].marking === "pressao" ? 0.5 : 0.32;
       state.tokens[side].forEach((p) => { if (!p.out) p.stamina = clamp(p.stamina - drain, 35, 100); });
     }
+    // ESTATÍSTICAS realistas (chutes / no alvo / escanteios) — contam por minuto SEM
+    // cinemática, calibradas pelo λ. Os gols (abaixo) somam +1 chute e +1 no alvo cada,
+    // então a conversão fica em ~10-15% e o "no alvo" sempre ≥ gols.
+    for (const side of ["home", "away"]) {
+      const pi = idx(side);
+      const lam = state.lam[side];
+      if (rnd() < clamp(0.06 + lam * 0.035, 0.02, 0.25)) { // ~9-12 chutes/time/jogo
+        state.stats.shots[pi]++;
+        if (rnd() < 0.36) state.stats.onTarget[pi]++; // ~36% no alvo (além dos gols)
+      }
+      if (rnd() < clamp(0.035 + lam * 0.02, 0.01, 0.11)) state.stats.corners[pi]++; // ~4-6/time/jogo
+    }
     // sorteio de gol (no máx. 1 por minuto p/ a cinemática ser vista)
     for (const side of ["home", "away"]) {
       const lam = state.lam[side];
