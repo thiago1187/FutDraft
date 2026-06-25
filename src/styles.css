@@ -1072,6 +1072,7 @@ body {
 .ml-ht-score { font-family: var(--display); font-size: 24px; color: var(--paper); margin: 12px 0; text-transform: uppercase; }
 .ml-ht-score b { color: var(--gold); font-size: 30px; }
 .ml-ht-text { font-family: var(--body); font-size: 14px; color: var(--muted); margin-bottom: 20px; }
+.ml-ht-force { margin-top: 10px; font-size: 13px; opacity: 0.85; }
 
 /* --- slider de posse --- */
 .mlf-slider { display: flex; align-items: center; gap: 8px; }

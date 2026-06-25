@@ -130,12 +130,20 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       e.substitute(cmd.side, cmd.outId, bp);
     }
   }
+  // Confirma todos os lados que ESTE aparelho controla (1 no online, os 2 no local).
   function readyUp() {
-    const sides = isLocal ? ["home", "away"] : [mySide];
+    const sides = isLocal ? ["home", "away"] : controllable;
     for (const s of sides) {
       if (controller) engineRef.current?.setReady(s);
       else room?.broadcast?.("cmd", { kind: "ready", side: s });
     }
+    setTick((n) => n + 1);
+  }
+  // Válvula de segurança: o anfitrião força o 2º tempo mesmo se o adversário
+  // não confirmar (caiu/ausente) — evita que a partida trave no intervalo.
+  function forceSecondHalf() {
+    engineRef.current?.setReady("home");
+    engineRef.current?.setReady("away");
     setTick((n) => n + 1);
   }
   function sendCommand(cmd) {
@@ -310,21 +318,37 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         <div className="ml-spectating">Assistindo ao vivo — o anfitrião comanda o relógio.</div>
       )}
 
-      {/* INTERVALO — ambos prontos */}
-      {view.phase === "INT" && (
-        <div className="ml-halftime">
-          <div className="ml-ht-card">
-            <span className="pen-eyebrow">Intervalo</span>
-            <div className="ml-ht-score">{homeName} <b>{view.score[0]}</b> — <b>{view.score[1]}</b> {awayName}</div>
-            <p className="ml-ht-text">Ajuste sua tática (painel à direita) e confirme para começar o 2º tempo.</p>
-            {!isLocal && view.ready?.[mySide] ? (
-              <div className="waiting">✓ Pronto! Aguardando o adversário…</div>
-            ) : (
-              <button className="btn btn-primary btn-block btn-lg" onClick={readyUp}>{isLocal ? "Começar 2º tempo →" : "Estou pronto →"}</button>
-            )}
+      {/* INTERVALO — ambos prontos (com válvula de segurança do anfitrião) */}
+      {view.phase === "INT" && (() => {
+        const myUnready = controllable.filter((s) => !view.ready?.[s]);
+        const bothReady = view.ready?.home && view.ready?.away;
+        return (
+          <div className="ml-halftime">
+            <div className="ml-ht-card">
+              <span className="pen-eyebrow">Intervalo</span>
+              <div className="ml-ht-score">{homeName} <b>{view.score[0]}</b> — <b>{view.score[1]}</b> {awayName}</div>
+              <p className="ml-ht-text">Ajuste sua tática (painel à direita) e confirme para começar o 2º tempo.</p>
+
+              {controllable.length === 0 ? (
+                <div className="waiting">Aguardando os técnicos confirmarem…</div>
+              ) : myUnready.length > 0 ? (
+                <button className="btn btn-primary btn-block btn-lg" onClick={readyUp}>
+                  {isLocal ? "Começar 2º tempo →" : "Estou pronto →"}
+                </button>
+              ) : (
+                <div className="waiting">✓ Pronto! Aguardando o adversário…</div>
+              )}
+
+              {/* Anfitrião pode destravar se o adversário não confirmar */}
+              {controller && !isLocal && !bothReady && (
+                <button className="btn btn-ghost btn-block ml-ht-force" onClick={forceSecondHalf}>
+                  Começar 2º tempo agora (forçar) →
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {pens && (
         <Penalties
