@@ -118,6 +118,7 @@ export default function App() {
   const [squadsReady, setSquadsReady] = useState(false);
   const [squadsError, setSquadsError] = useState("");
   const roomRef = useRef(null);
+  const wasMemberRef = useRef(false);
 
   // Carrega as seleções reais do Supabase uma vez (250 seleções / 5.6k jogadores).
   useEffect(() => {
@@ -131,6 +132,19 @@ export default function App() {
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
+
+  // Expulsão: se eu já estava na sala e o anfitrião me removeu da lista (online),
+  // saio para a Home. Não dispara no modo local nem para o próprio anfitrião.
+  useEffect(() => {
+    if (!gstate) { wasMemberRef.current = false; return; }
+    const inPlayers = gstate.players?.some((p) => p.id === myId);
+    if (inPlayers) { wasMemberRef.current = true; return; }
+    if (wasMemberRef.current && gstate.hostId !== myId && !room?.isLocal) {
+      wasMemberRef.current = false;
+      leave();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstate, myId, room]);
 
   function attach(r, name) {
     setRoom(r);
@@ -158,7 +172,7 @@ export default function App() {
         code,
         hostId: myId,
         phase: "lobby",
-        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4 },
+        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6 },
         players: [host],
         draft: null,
         tournament: null,
@@ -270,8 +284,10 @@ export default function App() {
       setState((prev) => {
         const humanCount = prev.players.filter((p) => !p.isBot).length;
         if (humanCount < 1) return prev;
-        // Auto-preenche as vagas com seleções-bot aleatórias até o tamanho da chave.
-        const target = Math.min(16, Math.max(prev.settings.bracketSize || 4, prev.players.length));
+        // Auto-preenche as vagas com seleções-bot aleatórias até o alvo:
+        // mata-mata usa o tamanho da chave; pontos corridos usa a quantidade escolhida.
+        const targetN = prev.settings.format === "league" ? (prev.settings.leagueSize || 6) : (prev.settings.bracketSize || 4);
+        const target = Math.min(16, Math.max(targetN, prev.players.length));
         const players = [...prev.players];
         let guard = 0;
         while (players.length < target && guard < 32) {

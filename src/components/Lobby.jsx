@@ -13,11 +13,6 @@ const DIFFICULTIES = [
   { id: "classic", label: "Clássico", desc: "Notas visíveis" },
   { id: "almanac", label: "De almanaque", desc: "Notas ocultas" },
 ];
-const BRACKETS = [
-  { id: 4, label: "4 times" },
-  { id: 8, label: "8 times" },
-  { id: 16, label: "16 times" },
-];
 const TIMERS = [
   { id: 20, label: "20s" },
   { id: 30, label: "30s" },
@@ -38,8 +33,13 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
   const set = state.settings;
   const humanCount = state.players.filter((p) => !p.isBot).length;
   const canStart = humanCount >= 1;
-  const bracket = set.bracketSize || 4;
-  const emptySlots = Math.max(0, bracket - state.players.length);
+  const isLeague = (set.format || "knockout") === "league";
+  const sizeKey = isLeague ? "leagueSize" : "bracketSize";
+  const targetSize = isLeague ? (set.leagueSize || 6) : (set.bracketSize || 4);
+  const shownTotal = Math.max(targetSize, state.players.length);
+  const minSize = Math.max(2, state.players.length); // não dá pra ter menos vagas que jogadores
+  const emptySlots = Math.max(0, shownTotal - state.players.length);
+  const setSize = (n) => pick({ [sizeKey]: Math.min(16, Math.max(minSize, n)) });
   const usedByOthers = state.players.filter((p) => p.id !== myId).map((p) => p.color);
 
   function copy() {
@@ -79,7 +79,15 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
         <div className="cfg">
           <Seg label="Modalidade" options={MODALITIES} value={set.modality || "pvp"} isHost={isHost} onPick={(v) => pick({ modality: v })} />
           <Seg label="Formato" options={FORMATS} value={set.format || "knockout"} isHost={isHost} onPick={(v) => pick({ format: v })} />
-          <Seg label="Tamanho da chave" options={BRACKETS} value={bracket} isHost={isHost} onPick={(v) => pick({ bracketSize: v })} />
+          <Stepper
+            label="Número de times"
+            value={shownTotal}
+            min={minSize}
+            max={16}
+            isHost={isHost}
+            onChange={setSize}
+            hint={isLeague ? "Pode ser ímpar — vagas viram CPU ao iniciar." : "Sobras entram com bye — vagas viram CPU ao iniciar."}
+          />
           <Seg label="Dificuldade do draft" options={DIFFICULTIES} value={set.difficulty || "classic"} isHost={isHost} onPick={(v) => pick({ difficulty: v })} />
           <Seg label="Seleções no draft" options={POOLS} value={set.squadPool || "all"} isHost={isHost} onPick={(v) => pick({ squadPool: v })} />
           <Seg label="Tempo por jogada" options={TIMERS} value={set.turnTimer ?? 30} isHost={isHost} onPick={(v) => pick({ turnTimer: v })} />
@@ -133,7 +141,7 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
       <div className="split-right lobby-right">
         <div className="lobby-right-head">
           <h1 className="screen-title lobby-title">Técnicos na sala</h1>
-          <span className="lobby-count"><span className="live-dot" /> {state.players.length}/{bracket} times</span>
+          <span className="lobby-count"><span className="live-dot" /> {state.players.length}/{shownTotal} times</span>
         </div>
 
         <div className="tecnicos-grid">
@@ -159,19 +167,29 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
                 {mine && (
                   <button className="btn btn-ghost btn-sm tecnico-edit" onClick={() => setEditing((v) => !v)}>{editing ? "Fechar" : "Editar"}</button>
                 )}
-                {isHost && (p.isBot || p.id.startsWith("local_")) && (
-                  <button className="roster-x" title="Remover" onClick={() => actions.removePlayer(p.id)}>×</button>
+                {isHost && p.id !== myId && (
+                  <button className="roster-x" title={p.isBot ? "Remover CPU" : "Remover da sala"} onClick={() => actions.removePlayer(p.id)}>×</button>
                 )}
               </div>
             );
           })}
 
-          {emptySlots > 0 && Array.from({ length: Math.min(emptySlots, 8) }).map((_, i) => (
+          {emptySlots > 0 && Array.from({ length: Math.min(emptySlots, 16) }).map((_, i) => (
             <div className="tecnico-card vaga" key={"v" + i}>
               <span className="vaga-plus">🤖</span>
               <span className="vaga-text">Vaga livre — CPU entra ao iniciar</span>
+              {isHost && (
+                <button className="roster-x" title="Remover vaga" onClick={() => setSize(shownTotal - 1)}>×</button>
+              )}
             </div>
           ))}
+
+          {isHost && shownTotal < 16 && (
+            <button className="tecnico-card vaga vaga-add" onClick={() => setSize(shownTotal + 1)}>
+              <span className="vaga-plus">＋</span>
+              <span className="vaga-text">Adicionar vaga livre (CPU)</span>
+            </button>
+          )}
         </div>
 
         {isLocal && (
@@ -196,6 +214,20 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
           <button className="btn btn-ghost btn-block" onClick={actions.leave}>Sair da sala</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Stepper({ label, value, min, max, isHost, onChange, hint }) {
+  return (
+    <div className="cfg-block">
+      <div className="cfg-block-label">{label}</div>
+      <div className="cfg-stepper">
+        <button className="cfg-step-btn" disabled={!isHost || value <= min} onClick={() => isHost && onChange(value - 1)}>−</button>
+        <span className="cfg-step-val">{value}</span>
+        <button className="cfg-step-btn" disabled={!isHost || value >= max} onClick={() => isHost && onChange(value + 1)}>+</button>
+      </div>
+      {hint && <span className="cfg-step-hint">{hint}</span>}
     </div>
   );
 }

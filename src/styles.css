@@ -1292,7 +1292,13 @@ body {
 .tecnico-card.mine { border-color: var(--gold); }
 .tecnico-card.vaga { border-style: dashed; opacity: 0.7; }
 .vaga-plus { width: 46px; height: 46px; border-radius: 50%; border: 1.5px dashed var(--line); display: grid; place-items: center; font-size: 22px; color: var(--muted); flex: none; }
-.vaga-text { font-family: var(--body); font-style: italic; font-size: 12px; color: var(--muted); }
+.vaga-text { font-family: var(--body); font-style: italic; font-size: 12px; color: var(--muted); flex: 1; text-align: left; }
+.tecnico-card.vaga .roster-x { font-size: 22px; }
+/* card-botão "adicionar vaga" */
+.vaga-add { width: 100%; cursor: pointer; opacity: 0.85; transition: opacity 0.12s ease, border-color 0.12s ease; }
+.vaga-add:hover { opacity: 1; border-color: var(--gold); }
+.vaga-add .vaga-plus { color: var(--gold); border-color: var(--gold); border-style: solid; font-size: 24px; }
+.vaga-add .vaga-text { font-style: normal; font-weight: 600; color: var(--ink); }
 .tecnico-info { flex: 1; min-width: 0; }
 .tecnico-team { font-family: var(--head); font-weight: 600; font-size: 16px; color: var(--ink); display: flex; align-items: center; }
 .tecnico-name { font-family: var(--body); font-size: 12px; color: var(--muted2); display: flex; align-items: center; gap: 4px; }
@@ -1315,6 +1321,14 @@ body {
 .cfg-opt-desc { font-family: var(--body); font-size: 10px; color: var(--muted2); text-align: center; line-height: 1.2; }
 .cfg-opt.sel .cfg-opt-desc { color: var(--muted); }
 .cfg-opt:disabled { cursor: default; }
+
+/* stepper (número de times nos pontos corridos) */
+.cfg-stepper { display: flex; align-items: center; gap: 10px; }
+.cfg-step-btn { width: 40px; height: 40px; border: 1.5px solid var(--line); background: var(--paper); border-radius: 8px; cursor: pointer; font-family: var(--display); font-size: 22px; line-height: 1; color: var(--ink); display: flex; align-items: center; justify-content: center; }
+.cfg-step-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.cfg-step-btn:disabled { opacity: 0.4; cursor: default; }
+.cfg-step-val { font-family: var(--display); font-size: 26px; color: var(--ink); min-width: 40px; text-align: center; }
+.cfg-step-hint { display: block; font-family: var(--body); font-size: 11px; color: var(--muted2); margin-top: 6px; }
 
 .picker-grid.flags .picker-emoji { padding: 2px; overflow: hidden; }
 .picker-flag { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; display: block; }
