@@ -136,6 +136,16 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
 
   const ratings = filledPlayers.length ? teamRatings(filledPlayers) : null;
   const overall = filledPlayers.length ? Math.round(filledPlayers.reduce((s, p) => s + p.ovr, 0) / filledPlayers.length) : 0;
+  // Em Almanaque os ratings ficam ocultos durante a escolha (às cegas); ao completar
+  // o time, revela o OVR de cada um e o overall geral.
+  const showOvr = !hideRatings || myDone;
+  // Progresso de cada técnico humano, em tempo real (quem já fechou o XI e quem falta).
+  const humanProgress = humans.map((p) => {
+    const m = draft.mgr[p.id];
+    const filled = m ? Object.values(m.slots).filter(Boolean).length : 0;
+    const total = findFormation(11, m?.formation).slots.length;
+    return { id: p.id, name: p.teamName, emoji: p.emoji, filled, total, done: !!(m?.done || filled >= total) };
+  });
 
   return (
     <div className="screen draft7">
@@ -169,7 +179,19 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
             <div className="d7-complete">
               <div className="d7-complete-big">11/11</div>
               <div className="d7-complete-sub">Escalação completa!</div>
-              <p className="muted center">Aguardando os outros técnicos terminarem…</p>
+              <div className="d7-complete-ovr">Overall do time <b>{overall || "—"}</b></div>
+              {humanProgress.length > 1 && (
+                <div className="d7-progress">
+                  <div className="d7-progress-label">Times em tempo real</div>
+                  {humanProgress.map((h) => (
+                    <div key={h.id} className={`d7-progress-row ${h.done ? "done" : ""}`}>
+                      <span className="d7-progress-name">{h.name}</span>
+                      <span className="d7-progress-count">{h.done ? "Pronto ✓" : `${h.filled}/${h.total}`}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {humanProgress.length <= 1 && <p className="muted center">Pronto para começar!</p>}
             </div>
           ) : (
             <>
@@ -259,9 +281,9 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
         <div className="d7-right">
           <div className="d7-box-head">
             <span className="d7-box-eyebrow">Box score · {filledCount}/11</span>
-            <span className="d7-box-big">{hideRatings ? "—" : overall || "—"}</span>
+            <span className="d7-box-big">{showOvr ? (overall || "—") : "—"}</span>
           </div>
-          {ratings && !hideRatings && (
+          {ratings && showOvr && (
             <div className="d7-box-bars">
               <span><i className="bar-atk" /> Ataque <b>{Math.round(ratings.attack)}</b></span>
               <span><i className="bar-def" /> Defesa <b>{Math.round(ratings.defense)}</b></span>
@@ -274,8 +296,8 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
                 <div key={i} className={`d7-box-row ${p ? "" : "empty"}`}>
                   <span className="d7-box-role">{slot.role}</span>
                   <span className="d7-box-name">{p ? p.name : "—"}</span>
-                  {p && !hideRatings && <span className="d7-box-ovr">{p.ovr}</span>}
-                  {p && hideRatings && <Flag iso2={p.iso2} src={p.flagSrc} emoji={p.flag} className="d7-box-flag" />}
+                  {p && <Flag iso2={p.iso2} src={p.flagSrc} emoji={p.flag} className="d7-box-flag" />}
+                  {p && showOvr && <span className="d7-box-ovr">{p.ovr}</span>}
                 </div>
               );
             })}
