@@ -17,7 +17,7 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, forcePens }) {
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
@@ -26,6 +26,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
   const speedRef = useRef(2);
+  const penResultRef = useRef(null);
 
   const [, setTick] = useState(0);
   const [snap, setSnap] = useState(null);
@@ -179,8 +180,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       p.animating = false;
       if (isPenDecided(p.home, p.away, p.score)) {
         p.done = true;
-        const result = engineRef.current.result({ home: p.score[0], away: p.score[1], order: [] });
-        setTimeout(() => finalize(result), 1000);
+        if (engineRef.current) {
+          penResultRef.current = engineRef.current.result({ home: p.score[0], away: p.score[1], order: [] });
+        }
       }
       if (room) room.broadcast("pens", p);
       return p;
@@ -300,7 +302,13 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       )}
 
       {pens && (
-        <Penalties pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} canKick={controller} mySide={mySide} onKick={kick} onDefend={defend} onResolve={commitKick} />
+        <Penalties
+          pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
+          canKick={controller} mySide={mySide} onKick={kick} onDefend={defend} onResolve={commitKick}
+          isLocal={isLocal} canFinish={controller}
+          onContinue={() => penResultRef.current && finalize(penResultRef.current)}
+          onLeave={onLeave}
+        />
       )}
     </div>
   );
@@ -393,7 +401,7 @@ function compact(s) {
 function isPenDecided(h, a, score) {
   const hd = h.length, ad = a.length;
   const remH = Math.max(0, 5 - hd), remA = Math.max(0, 5 - ad);
-  if (hd <= 5 || ad <= 5) {
+  if (hd <= 5 && ad <= 5) {
     if (score[0] > score[1] + remA) return true;
     if (score[1] > score[0] + remH) return true;
   }
@@ -405,7 +413,7 @@ function isPenDecided(h, a, score) {
 const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
 const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, mySide, onKick, onDefend, onResolve }) {
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, mySide, onKick, onDefend, onResolve, isLocal, canFinish, onContinue, onLeave }) {
   const lk = pens.lastKick;
   const [phase, setPhase] = useState("idle"); // idle | shoot | result
 
@@ -504,7 +512,37 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, my
         )}
         {!pens.done && canKick && pens.animating && <div className="pen-wait">Cobrando…</div>}
         {!pens.done && !canKick && <div className="pen-wait">{pens.animating ? "Cobrando…" : "Aguardando a cobrança…"}</div>}
-        {pens.done && <div className="pen-done">Decidido nos pênaltis!</div>}
+        {pens.done && (() => {
+          const penWinner = pens.score[0] > pens.score[1] ? "home" : "away";
+          const winnerName = penWinner === "home" ? homeName : awayName;
+          const winnerColor = penWinner === "home" ? homeColor : awayColor;
+          const iWon = isLocal || mySide === penWinner;
+          return (
+            <>
+              <div className="pen-done">Decidido nos pênaltis!</div>
+              <div className="pen-winner" style={{ color: winnerColor }}>{winnerName} vence!</div>
+              <div className="pen-actions">
+                {isLocal ? (
+                  <button className="pen-aim-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
+                ) : iWon ? (
+                  canFinish
+                    ? <button className="pen-aim-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
+                    : <div className="pen-wait">Aguardando a próxima partida…</div>
+                ) : (
+                  <>
+                    <div className="pen-elim">Você foi eliminado</div>
+                    {canFinish && (
+                      <button className="pen-aim-btn" onClick={onContinue}>Avançar torneio (espectador)</button>
+                    )}
+                    {onLeave && (
+                      <button className="pen-aim-btn pen-def-btn" onClick={onLeave}>Sair pro Lobby</button>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

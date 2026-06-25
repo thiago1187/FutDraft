@@ -48,6 +48,29 @@ export function flagUrl(code) {
 export function isFlagEscudo(v) {
   return typeof v === "string" && v.startsWith("fl:");
 }
+// Escudo de bandeira por URL direta (seleções históricas: "fls:<url>").
+export function isFlagSrcEscudo(v) {
+  return typeof v === "string" && v.startsWith("fls:");
+}
+
+// Bandeira como imagem (funciona em qualquer SO, inclusive Windows que não
+// renderiza emoji de bandeira). Prioridade: src (URL direta, p/ históricas) →
+// iso2 (flagcdn) → emoji (último recurso).
+export function Flag({ iso2, src, emoji, className = "", round }) {
+  const url = src || (iso2 ? flagUrl(iso2) : null);
+  if (url) {
+    return (
+      <img
+        className={`flag-img ${round ? "round" : ""} ${className}`}
+        src={url}
+        alt=""
+        loading="lazy"
+        draggable={false}
+      />
+    );
+  }
+  return <span className={`flag-emoji ${className}`} aria-hidden>{emoji || "🏳️"}</span>;
+}
 
 // Próxima cor livre (não usada por ninguém na sala).
 export function freeColor(usedColors) {
@@ -102,14 +125,14 @@ export function PitchMarks() {
 }
 
 export function Avatar({ emoji, color, size = 40, online }) {
-  const flag = isFlagEscudo(emoji);
+  const flagSrc = isFlagSrcEscudo(emoji) ? emoji.slice(4) : isFlagEscudo(emoji) ? flagUrl(emoji.slice(3)) : null;
   return (
     <span
       className="avatar"
       style={{ width: size, height: size, background: `${color}22`, borderColor: `${color}88`, fontSize: size * 0.5 }}
     >
-      {flag ? (
-        <img className="avatar-flag" src={flagUrl(emoji.slice(3))} alt="" loading="lazy" />
+      {flagSrc ? (
+        <img className="avatar-flag" src={flagSrc} alt="" loading="lazy" />
       ) : (
         <span aria-hidden>{emoji}</span>
       )}

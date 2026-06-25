@@ -96,7 +96,7 @@ function makeSquadBot(players = []) {
     id: "bot_" + Math.random().toString(36).slice(2, 8),
     name: "CPU",
     teamName: squadLabel(squad),
-    emoji: squad.iso2 ? `fl:${squad.iso2}` : squad.code,
+    emoji: squad.iso2 ? `fl:${squad.iso2}` : squad.flagSrc ? `fls:${squad.flagSrc}` : squad.code,
     color: freeColor(usedColors),
     flag: squad.flag,
     joinedAt: Date.now() + players.length,
@@ -470,6 +470,7 @@ export default function App() {
           room={room}
           actions={actions}
           hostOffline={hostOffline}
+          onLeave={() => setScreen("home")}
         />
       )}
       {gstate.phase === "finished" && (

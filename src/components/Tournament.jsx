@@ -54,7 +54,7 @@ function MatchCard({ match, players, current }) {
   );
 }
 
-export default function Tournament({ state, myId, isHost, isLocal, room, actions, hostOffline }) {
+export default function Tournament({ state, myId, isHost, isLocal, room, actions, hostOffline, onLeave }) {
   const t = state.tournament;
   const players = state.players;
 
@@ -77,6 +77,7 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
           isLocal={isLocal}
           room={room}
           onFinish={(result) => actions.finishLiveMatch(m.id, result)}
+          onLeave={onLeave}
         />
       );
     }

@@ -16,6 +16,23 @@ export function isSquadsLoaded() {
 // bucket do banco (rótulos 7a0) -> grupo do motor
 const BUCKET_GROUP = { GOL: "GK", ZAG: "DEF", MEI: "MID", ATA: "ATT" };
 
+// posições específicas do banco -> roles de slot da formação
+// ME = meia-esquerda, MD = meia-direita (posições históricas)
+const POS_TO_ROLES = {
+  GOL: ["GOL"],
+  ZAG: ["ZAG"],
+  LD:  ["LD"],
+  LE:  ["LE"],
+  VOL: ["VOL"],
+  MC:  ["MC"],
+  MEI: ["MEI"],
+  ME:  ["MEI", "PE"],  // meia-esquerda → pode jogar como meia ou ponta-esquerda
+  MD:  ["MC",  "PD"],  // meia-direita  → pode jogar como MC ou ponta-direita
+  PE:  ["PE"],
+  PD:  ["PD"],
+  CA:  ["CA"],
+};
+
 // FIFA-3 -> ISO-2 (para a bandeira emoji). Subdivisões/históricos tratados à parte.
 const FIFA3_ISO2 = {
   ALG: "DZ", ARG: "AR", AUS: "AU", AUT: "AT", BEL: "BE", BRA: "BR", BUL: "BG",
@@ -25,6 +42,7 @@ const FIFA3_ISO2 = {
   MEX: "MX", NED: "NL", NGA: "NG", PAR: "PY", PER: "PE", POL: "PL", POR: "PT",
   ROU: "RO", RUS: "RU", SEN: "SN", SRB: "RS", SUI: "CH", SWE: "SE", TUR: "TR",
   UKR: "UA", URU: "UY", USA: "US",
+  TCH: "CZ", // Tchecoslováquia: bandeira idêntica à da República Tcheca
 };
 const SPECIAL_FLAG = {
   ENG: "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
@@ -33,8 +51,16 @@ const SPECIAL_FLAG = {
   NIR: "🇬🇧",
   URS: "🚩", // União Soviética (histórica)
   YUG: "🏳️", // Iugoslávia (histórica)
-  TCH: "🏳️", // Tchecoslováquia (histórica)
 };
+
+// Bandeiras históricas que o flagcdn não tem — imagem direta (Wikimedia, URLs estáveis).
+const HISTORIC_FLAG_URL = {
+  URS: "https://upload.wikimedia.org/wikipedia/commons/a/a9/Flag_of_the_Soviet_Union.svg",
+  YUG: "https://upload.wikimedia.org/wikipedia/commons/6/61/Flag_of_Yugoslavia_%281946-1992%29.svg",
+};
+export function flagSrcFor(code3) {
+  return HISTORIC_FLAG_URL[code3] || null;
+}
 
 export function flagFor(code3) {
   if (SPECIAL_FLAG[code3]) return SPECIAL_FLAG[code3];
@@ -90,6 +116,7 @@ export async function loadSquads() {
         country: s.country,
         code: s.country_code,
         iso2: iso2For(s.country_code),
+        flagSrc: flagSrcFor(s.country_code),
         year: s.year,
         flag,
         formation: "4-3-3",
@@ -101,14 +128,19 @@ export async function loadSquads() {
     for (const p of plRows) {
       const squad = bySlug[p.squad_slug];
       if (!squad) continue;
+      const rawPos = (p.positions || p.bucket || "").split("|").map((s) => s.trim()).filter(Boolean);
+      const roles = [...new Set(rawPos.flatMap((pos) => POS_TO_ROLES[pos] || []))];
       squad.players.push({
         id: String(p.id),
         name: p.name,
         number: p.number,
         pos: BUCKET_GROUP[p.bucket] || "MID",
+        roles,
         detail: p.primary_position || p.bucket || "",
         ovr: p.overall,
         flag: squad.flag,
+        iso2: squad.iso2,
+        flagSrc: squad.flagSrc,
         country: squad.code,
         cup: squad.year,
         squadId: squad.id,
