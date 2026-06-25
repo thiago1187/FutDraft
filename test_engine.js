@@ -3,8 +3,12 @@ import { generatePool, POSITIONS } from "./src/engine/players.js";
 import { formationsFor, autoLineup } from "./src/engine/formations.js";
 import { REAL_PLAYERS } from "./src/engine/playersData.js";
 import { WORLDCUP_SQUADS, squadXI } from "./src/data/worldcupSquads.js";
+import { setSquads } from "./src/data/squads.js";
 import { createManagerDraft, ensureRoll, autoStep, draftXI } from "./src/engine/draft7a0.js";
 import { snakeOrder } from "./src/engine/draft.js";
+
+// Semeia o registry de seleções com os dados estáticos (offline) para os testes.
+setSquads(WORLDCUP_SQUADS);
 import { simulateMatch } from "./src/engine/match.js";
 import {
   createTournament,

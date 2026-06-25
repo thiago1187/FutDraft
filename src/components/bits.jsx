@@ -1,14 +1,39 @@
 import { POS_COLOR, POS_LABEL } from "../engine/players.js";
 
-// Paletas para personalização de time
+// Paleta de cores distintas (até 16 times sem cores repetidas numa mesma sala).
 export const TEAM_COLORS = [
-  "#2bd66a", "#ffd23f", "#ff7a59", "#5ac8fa", "#c77dff",
-  "#ff5a8a", "#34e0c4", "#f5a524", "#7bdb4a", "#ff5a52",
+  "#e94e27", "#2b5ba8", "#3f9c63", "#ffd23f", "#c77dff",
+  "#ff5a8a", "#34e0c4", "#f5a524", "#7bdb4a", "#5ac8fa",
+  "#9b5de5", "#ff8c42", "#118ab2", "#ef476f", "#06d6a0", "#8d6e63",
 ];
+
 export const TEAM_EMOJIS = [
   "🦁", "🐯", "🦅", "🐺", "🦈", "🐂", "🐉", "🦂", "⚡", "🔥",
   "👑", "💀", "🚀", "⭐", "🐍", "🦏", "🐗", "🦣", "🌪️", "🍀",
 ];
+
+// Bandeiras (imagens — funcionam em qualquer SO, inclusive Windows) por código ISO-2.
+// Escudo de bandeira é guardado como a string "fl:<código>" (ex.: "fl:br", "fl:gb-eng").
+export const TEAM_FLAGS = [
+  "br", "ar", "fr", "es", "de", "it", "nl", "pt", "be", "uy",
+  "hr", "mx", "us", "co", "cl", "jp", "kr", "sn", "ma", "ng",
+  "gh", "cm", "eg", "pl", "se", "dk", "ch", "ru", "ua", "rs",
+  "at", "tr", "gr", "ie", "pe", "ec", "py", "au", "cr", "ir",
+  "sa", "ca", "no", "gb-eng", "gb-sct", "gb-wls",
+];
+
+export function flagUrl(code) {
+  return `https://flagcdn.com/w80/${code}.png`;
+}
+export function isFlagEscudo(v) {
+  return typeof v === "string" && v.startsWith("fl:");
+}
+
+// Próxima cor livre (não usada por ninguém na sala).
+export function freeColor(usedColors) {
+  const used = new Set(usedColors);
+  return TEAM_COLORS.find((c) => !used.has(c)) || TEAM_COLORS[usedColors.length % TEAM_COLORS.length];
+}
 
 export function Logo({ size = "lg" }) {
   if (size === "sm") {
@@ -57,12 +82,17 @@ export function PitchMarks() {
 }
 
 export function Avatar({ emoji, color, size = 40, online }) {
+  const flag = isFlagEscudo(emoji);
   return (
     <span
       className="avatar"
       style={{ width: size, height: size, background: `${color}22`, borderColor: `${color}88`, fontSize: size * 0.5 }}
     >
-      <span aria-hidden>{emoji}</span>
+      {flag ? (
+        <img className="avatar-flag" src={flagUrl(emoji.slice(3))} alt="" loading="lazy" />
+      ) : (
+        <span aria-hidden>{emoji}</span>
+      )}
       {online != null && <span className={`avatar-dot ${online ? "on" : "off"}`} />}
     </span>
   );

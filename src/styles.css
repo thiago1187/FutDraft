@@ -353,6 +353,7 @@ body {
 }
 .avatar-dot.on { background: var(--green); }
 .avatar-dot.off { background: var(--muted); }
+.avatar-flag { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
 
 .pos-badge {
   display: inline-flex;
@@ -1218,6 +1219,23 @@ body {
 .lobby-add { display: flex; gap: 8px; margin-top: 14px; }
 .lobby-add .btn { flex: 1; }
 .lobby-actions { margin-top: auto; padding-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+
+/* configurações estilo 7a0 (opções visíveis) */
+.cfg { display: flex; flex-direction: column; gap: 14px; }
+.cfg-block-label { font-family: var(--head); font-weight: 600; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.cfg-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.cfg-opt { flex: 1; min-width: 64px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 9px 8px; border: 1.5px solid var(--line); background: var(--paper); border-radius: 8px; cursor: pointer; }
+.cfg-opt.sel { background: var(--ink); border-color: var(--ink); }
+.cfg-opt-label { font-family: var(--head); font-weight: 700; font-size: 12px; text-transform: uppercase; color: var(--ink); white-space: nowrap; }
+.cfg-opt.sel .cfg-opt-label { color: var(--paper); }
+.cfg-opt-desc { font-family: var(--body); font-size: 10px; color: var(--muted2); text-align: center; line-height: 1.2; }
+.cfg-opt.sel .cfg-opt-desc { color: var(--muted); }
+.cfg-opt:disabled { cursor: default; }
+
+.picker-grid.flags .picker-emoji { padding: 2px; overflow: hidden; }
+.picker-flag { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; display: block; }
+.picker-color.taken { opacity: 0.22; cursor: not-allowed; }
+.picker-color.taken::after { content: "×"; color: #fff; display: grid; place-items: center; height: 100%; font-weight: 700; }
 
 @media (max-width: 920px) {
   .home-split, .lobby-split { grid-template-columns: 1fr; }

@@ -11,7 +11,7 @@ import {
   applyMove,
   autoStep,
 } from "./engine/draft7a0.js";
-import { WORLDCUP_SQUADS, SQUAD_BY_ID, squadLabel } from "./data/worldcupSquads.js";
+import { SQUADS, squadLabel, loadSquads } from "./data/squads.js";
 import { simulateMatch } from "./engine/match.js";
 import {
   createTournament,
@@ -19,7 +19,7 @@ import {
   nextMatch,
   tournamentFinished,
 } from "./engine/tournament.js";
-import { TEAM_COLORS, TEAM_EMOJIS, Logo } from "./components/bits.jsx";
+import { TEAM_EMOJIS, freeColor, Logo } from "./components/bits.jsx";
 import Home from "./components/Home.jsx";
 import Lobby from "./components/Lobby.jsx";
 import Draft7a0 from "./components/Draft7a0.jsx";
@@ -69,32 +69,37 @@ function genCode() {
   return c;
 }
 
-function makePlayer(id, name, index) {
+// Cria um técnico humano com cor e escudo únicos na sala.
+function makePlayer(id, name, players = []) {
   const first = name.split(" ")[0] || "Time";
+  const usedColors = players.map((p) => p.color);
+  const usedEmojis = players.map((p) => p.emoji);
+  const emoji = TEAM_EMOJIS.find((e) => !usedEmojis.includes(e)) || TEAM_EMOJIS[players.length % TEAM_EMOJIS.length];
   return {
     id,
     name,
     teamName: `${first} FC`,
-    emoji: TEAM_EMOJIS[index % TEAM_EMOJIS.length],
-    color: TEAM_COLORS[index % TEAM_COLORS.length],
-    joinedAt: Date.now() + index,
+    emoji,
+    color: freeColor(usedColors),
+    joinedAt: Date.now() + players.length,
   };
 }
 
-const BOT_EMOJIS = ["🤖", "👾", "🦾", "⚙️", "🛸", "📟", "🔩", "💾"];
-
-// Cria um adversário-bot que É uma seleção real (Brasil 2022, Argentina 1986…).
-function makeSquadBot(index, usedSquadIds) {
-  const avail = WORLDCUP_SQUADS.filter((s) => !usedSquadIds.includes(s.id));
-  const squad = (avail.length ? avail : WORLDCUP_SQUADS)[Math.floor(Math.random() * (avail.length ? avail.length : WORLDCUP_SQUADS.length))];
+// Cria um adversário-bot aleatório que É uma seleção real; escudo = bandeira, cor única.
+function makeSquadBot(players = []) {
+  const usedSquadIds = players.filter((p) => p.squadId).map((p) => p.squadId);
+  const usedColors = players.map((p) => p.color);
+  const avail = SQUADS.filter((s) => !usedSquadIds.includes(s.id));
+  const pool = avail.length ? avail : SQUADS;
+  const squad = pool[Math.floor(Math.random() * pool.length)];
   return {
     id: "bot_" + Math.random().toString(36).slice(2, 8),
     name: "CPU",
     teamName: squadLabel(squad),
-    emoji: BOT_EMOJIS[index % BOT_EMOJIS.length],
-    color: TEAM_COLORS[index % TEAM_COLORS.length],
+    emoji: squad.iso2 ? `fl:${squad.iso2}` : squad.code,
+    color: freeColor(usedColors),
     flag: squad.flag,
-    joinedAt: Date.now() + index,
+    joinedAt: Date.now() + players.length,
     isBot: true,
     squadId: squad.id,
   };
@@ -110,7 +115,18 @@ export default function App() {
   const [error, setError] = useState("");
   const [session, setSession] = useState(loadSession());
   const [dev, setDev] = useState(false);
+  const [squadsReady, setSquadsReady] = useState(false);
+  const [squadsError, setSquadsError] = useState("");
   const roomRef = useRef(null);
+
+  // Carrega as seleções reais do Supabase uma vez (250 seleções / 5.6k jogadores).
+  useEffect(() => {
+    let alive = true;
+    loadSquads()
+      .then(() => alive && setSquadsReady(true))
+      .catch((e) => alive && setSquadsError(e?.message || "falha ao carregar seleções"));
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     roomRef.current = room;
@@ -136,13 +152,13 @@ export default function App() {
         code = genCode();
         tries++;
       }
-      const host = makePlayer(myId, name, 0);
+      const host = makePlayer(myId, name, []);
       const initialState = {
         v: 1,
         code,
         hostId: myId,
         phase: "lobby",
-        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30 },
+        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4 },
         players: [host],
         draft: null,
         tournament: null,
@@ -172,7 +188,7 @@ export default function App() {
       await r.setState((prev) => {
         if (!prev) return prev;
         if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makePlayer(myId, name, prev.players.length)] };
+        return { ...prev, players: [...prev.players, makePlayer(myId, name, prev.players)] };
       });
       attach(r, name);
     } catch (e) {
@@ -196,7 +212,7 @@ export default function App() {
       await r.setState((prev) => {
         if (!prev) return prev;
         if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makePlayer(myId, s.name, prev.players.length)] };
+        return { ...prev, players: [...prev.players, makePlayer(myId, s.name, prev.players)] };
       });
       attach(r, s.name);
     } catch (e) {
@@ -231,14 +247,13 @@ export default function App() {
     addLocalPlayer(name) {
       setState((prev) => {
         const id = "local_" + Math.random().toString(36).slice(2, 8);
-        return { ...prev, players: [...prev.players, makePlayer(id, name, prev.players.length)] };
+        return { ...prev, players: [...prev.players, makePlayer(id, name, prev.players)] };
       });
     },
     addBot() {
       setState((prev) => {
-        if (prev.players.length >= 8) return prev;
-        const used = prev.players.filter((p) => p.squadId).map((p) => p.squadId);
-        return { ...prev, players: [...prev.players, makeSquadBot(prev.players.length, used)] };
+        if (prev.players.length >= 16) return prev;
+        return { ...prev, players: [...prev.players, makeSquadBot(prev.players)] };
       });
     },
     removePlayer(id) {
@@ -253,7 +268,17 @@ export default function App() {
     leave,
     startDraft() {
       setState((prev) => {
-        if (prev.players.length < 2) return prev;
+        const humanCount = prev.players.filter((p) => !p.isBot).length;
+        if (humanCount < 1) return prev;
+        // Auto-preenche as vagas com seleções-bot aleatórias até o tamanho da chave.
+        const target = Math.min(16, Math.max(prev.settings.bracketSize || 4, prev.players.length));
+        const players = [...prev.players];
+        let guard = 0;
+        while (players.length < target && guard < 32) {
+          players.push(makeSquadBot(players));
+          guard++;
+        }
+        prev = { ...prev, players };
         const humans = prev.players.filter((p) => !p.isBot);
         const mgr = {};
         humans.forEach((p) => {
@@ -264,6 +289,7 @@ export default function App() {
           mgr,
           difficulty: prev.settings.difficulty,
           turnTimer: prev.settings.turnTimer || 30,
+          pool: prev.settings.squadPool || "all",
           done: false,
         };
         // sorteio inicial de cada técnico
@@ -428,6 +454,8 @@ export default function App() {
           isLocal={isLocal}
           actions={actions}
           hostOffline={hostOffline}
+          squadsReady={squadsReady}
+          squadsError={squadsError}
         />
       )}
       {gstate.phase === "draft" && (

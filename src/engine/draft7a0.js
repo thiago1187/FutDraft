@@ -5,7 +5,7 @@
 // Estas funções são puras: recebem o estado do draft e devolvem um novo estado. O redutor
 // autoritativo (anfitrião, em App.jsx) é quem as chama ao receber intents.
 
-import { WORLDCUP_SQUADS, SQUAD_BY_ID } from "../data/worldcupSquads.js";
+import { SQUADS, SQUAD_BY_ID, rollableSquads } from "../data/squads.js";
 import { findFormation, DEFAULT_FORMATION } from "./formations.js";
 
 export const REROLLS = { classic: 3, almanac: 1 };
@@ -25,15 +25,17 @@ export function createManagerDraft(formation = DEFAULT_FORMATION, difficulty = "
   };
 }
 
-// Sorteia uma seleção. kind: "team" (qualquer) | "cup" (outro ano do mesmo país, se houver).
-export function rollSquad(currentSquadId, kind = "team") {
-  let pool = WORLDCUP_SQUADS;
+// Sorteia uma seleção do "poolName" (todas/fortes/lendas).
+// kind: "team" (qualquer) | "cup" (outro ano do mesmo país, se houver).
+export function rollSquad(currentSquadId, kind = "team", poolName = "all") {
+  let pool = rollableSquads(poolName);
+  if (!pool.length) pool = SQUADS;
   if (kind === "cup" && currentSquadId) {
     const cur = SQUAD_BY_ID[currentSquadId];
-    const sameCountry = WORLDCUP_SQUADS.filter((s) => s.code === cur.code && s.id !== cur.id);
+    const sameCountry = pool.filter((s) => cur && s.code === cur.code && s.id !== cur.id);
     if (sameCountry.length) pool = sameCountry;
   } else if (currentSquadId) {
-    const others = WORLDCUP_SQUADS.filter((s) => s.id !== currentSquadId);
+    const others = pool.filter((s) => s.id !== currentSquadId);
     if (others.length) pool = others;
   }
   return rndItem(pool).id;
@@ -78,7 +80,7 @@ export function ensureRoll(draft, managerId) {
   const mgr = d.mgr[managerId];
   if (!mgr || mgr.done) return d;
   if (!mgr.current) {
-    mgr.current = { squadId: rollSquad(null, "team") };
+    mgr.current = { squadId: rollSquad(null, "team", d.pool) };
   }
   return d;
 }
@@ -88,7 +90,7 @@ export function applyReroll(draft, managerId, kind) {
   const d = structuredClone(draft);
   const mgr = d.mgr[managerId];
   if (!mgr || mgr.done || mgr.rerollsLeft <= 0) return d;
-  mgr.current = { squadId: rollSquad(mgr.current?.squadId, kind) };
+  mgr.current = { squadId: rollSquad(mgr.current?.squadId, kind, d.pool) };
   mgr.rerollsLeft -= 1;
   return d;
 }
@@ -113,7 +115,7 @@ export function applyPick(draft, managerId, playerId, slotIndex) {
     mgr.done = true;
     mgr.current = null;
   } else {
-    mgr.current = { squadId: rollSquad(mgr.current.squadId, "team") };
+    mgr.current = { squadId: rollSquad(mgr.current.squadId, "team", d.pool) };
   }
   d.done = allHumansDone(d);
   return d;
@@ -142,7 +144,7 @@ export function applyMove(draft, managerId, fromIndex, toIndex) {
 }
 
 function playerById(id) {
-  for (const s of WORLDCUP_SQUADS) {
+  for (const s of SQUADS) {
     const p = s.players.find((x) => x.id === id);
     if (p) return p;
   }
@@ -163,7 +165,7 @@ export function autoStep(draft, managerId) {
   // se nada do sorteio serve, re-sorteia algumas vezes (de graça no auto)
   let tries = 0;
   while (pickable.length === 0 && tries < 12) {
-    mgr.current = { squadId: rollSquad(mgr.current.squadId, "team") };
+    mgr.current = { squadId: rollSquad(mgr.current.squadId, "team", d.pool) };
     free = freePlayers(mgr.current.squadId, taken);
     pickable = free
       .filter((p) => isPickable(p, formation, mgr.slots, taken))

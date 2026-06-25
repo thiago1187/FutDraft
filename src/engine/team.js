@@ -1,5 +1,5 @@
 import { findFormation } from "./formations.js";
-import { SQUAD_BY_ID, squadXI } from "../data/worldcupSquads.js";
+import { SQUAD_BY_ID, squadXI } from "../data/squads.js";
 import { draftXI } from "./draft7a0.js";
 
 // Monta o time de um participante para a simulação.

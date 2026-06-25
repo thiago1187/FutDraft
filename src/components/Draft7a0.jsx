@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { findFormation, formationsFor, ROLE_LABEL } from "../engine/formations.js";
-import { SQUAD_BY_ID, squadLabel } from "../data/worldcupSquads.js";
+import { SQUAD_BY_ID } from "../data/squads.js";
 import { compatibleSlots, isPickable, freePlayers } from "../engine/draft7a0.js";
 import { teamRatings } from "../engine/match.js";
-import { countryName } from "../engine/playersData.js";
 import { POS_COLOR } from "../engine/players.js";
 
 const POS_RANK = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
@@ -140,7 +139,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
                   <span className="d7-rolled-eyebrow">Saiu</span>
                   <div className="d7-rolled-team">
                     <span className="d7-rolled-flag">{curSquad.flag}</span>
-                    <span className="d7-rolled-country">{countryName(curSquad.code)}</span>
+                    <span className="d7-rolled-country">{curSquad.country}</span>
                   </div>
                   <div className="d7-rolled-cup">Copa {curSquad.year}</div>
                 </div>

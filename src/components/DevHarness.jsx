@@ -7,9 +7,13 @@ import Tournament from "./Tournament.jsx";
 import Champion from "./Champion.jsx";
 import { buildTeam } from "../engine/team.js";
 import { createManagerDraft, ensureRoll, autoStep, applyReroll, applyPick, applyMove } from "../engine/draft7a0.js";
+import { SQUADS, setSquads, isSquadsLoaded } from "../data/squads.js";
 import { WORLDCUP_SQUADS } from "../data/worldcupSquads.js";
 import { createTournament, applyMatchResult, nextMatch, allMatches } from "../engine/tournament.js";
 import { simulateMatch } from "../engine/match.js";
+
+// Garante dados para o modo dev mesmo offline (semeia as seleções estáticas se vazio).
+if (!isSquadsLoaded()) setSquads(WORLDCUP_SQUADS);
 
 const SCREENS = [
   ["home", "Home (início)"],
@@ -24,13 +28,12 @@ const SCREENS = [
 const MOCK_ROOM = { isLocal: true, broadcast() {}, onBroadcast() { return () => {}; } };
 
 function mockPlayers() {
-  const cores = ["#2B5BA8", "#3f9c63", "#ffd23f"];
-  const emo = ["🤖", "👾", "🦾"];
+  const cores = ["#2b5ba8", "#3f9c63", "#ffd23f"];
   return [
-    { id: "h", name: "Você", teamName: "Seu Time FC", emoji: "🦁", color: "#E94E27" },
-    ...WORLDCUP_SQUADS.slice(0, 3).map((s, i) => ({
+    { id: "h", name: "Você", teamName: "Seu Time FC", emoji: "🦁", color: "#e94e27" },
+    ...SQUADS.slice(0, 3).map((s, i) => ({
       id: "b" + i, name: "CPU", teamName: `${s.country} ${s.year}`,
-      emoji: emo[i], color: cores[i], isBot: true, squadId: s.id, flag: s.flag,
+      emoji: s.flag, color: cores[i], isBot: true, squadId: s.id, flag: s.flag,
     })),
   ];
 }
@@ -66,7 +69,7 @@ export default function DevHarness({ onExit }) {
   // estados mock interativos
   const [lobbyState, setLobbyState] = useState(() => ({
     code: "DEV1", hostId: "h",
-    settings: { modality: "pvp", difficulty: "classic", format: "knockout", turnTimer: 30 },
+    settings: { modality: "pvp", difficulty: "classic", format: "knockout", turnTimer: 30, squadPool: "all", bracketSize: 8 },
     players: mockPlayers(),
   }));
   const [draftState, setDraftState] = useState(() => ({
@@ -89,8 +92,8 @@ export default function DevHarness({ onExit }) {
     setSettings: (patch) => setLobbyState((s) => ({ ...s, settings: { ...s.settings, ...patch } })),
     addBot: () => setLobbyState((s) => {
       const used = s.players.filter((p) => p.squadId).map((p) => p.squadId);
-      const avail = WORLDCUP_SQUADS.filter((x) => !used.includes(x.id));
-      const sq = (avail[0] || WORLDCUP_SQUADS[0]);
+      const avail = SQUADS.filter((x) => !used.includes(x.id));
+      const sq = (avail[0] || SQUADS[0]);
       return { ...s, players: [...s.players, { id: "b" + Math.random().toString(36).slice(2, 6), name: "CPU", teamName: `${sq.country} ${sq.year}`, emoji: "🌍", color: "#c77dff", isBot: true, squadId: sq.id, flag: sq.flag }] };
     }),
     addLocalPlayer: (n) => setLobbyState((s) => ({ ...s, players: [...s.players, { id: "l" + Math.random().toString(36).slice(2, 6), name: n, teamName: `${n} FC`, emoji: "⚽", color: "#34e0c4" }] })),
@@ -128,7 +131,7 @@ export default function DevHarness({ onExit }) {
         )}
         {screen === "lobby" && (
           <div className="app app-full" style={{ minHeight: "auto" }}>
-            <Lobby state={lobbyState} myId="h" online={["h", "b0", "b1", "b2"]} isHost isLocal={false} actions={lobbyActions} hostOffline={false} />
+            <Lobby state={lobbyState} myId="h" online={["h", "b0", "b1", "b2"]} isHost isLocal={false} actions={lobbyActions} hostOffline={false} squadsReady squadsError="" />
           </div>
         )}
         {screen === "draft" && (
