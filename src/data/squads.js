@@ -105,7 +105,7 @@ export async function loadSquads() {
     if (!supabase) throw new Error("Supabase não configurado");
     const [sqRows, plRows] = await Promise.all([
       fetchAll("wc_squads", "slug,country,country_code,year,avg_rating_round,legends,player_count"),
-      fetchAll("wc_players", "id,squad_slug,name,number,positions,primary_position,bucket,overall,is_legend"),
+      fetchAll("wc_players", "id,player_id,squad_slug,name,number,positions,primary_position,bucket,overall,is_legend"),
     ]);
 
     const bySlug = {};
@@ -132,6 +132,7 @@ export async function loadSquads() {
       const roles = [...new Set(rawPos.flatMap((pos) => POS_TO_ROLES[pos] || []))];
       squad.players.push({
         id: String(p.id),
+        personId: p.player_id, // mesma pessoa entre épocas (ex.: "pele", "diego-maradona")
         name: p.name,
         number: p.number,
         pos: BUCKET_GROUP[p.bucket] || "MID",

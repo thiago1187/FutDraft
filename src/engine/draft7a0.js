@@ -63,11 +63,22 @@ function pickBalancedByCountry(pool, excludeId) {
   return rndItem(byCountry[code]).id;
 }
 
-// Os jogadores do sorteio atual que ainda estão livres (não em `taken`).
-export function freePlayers(squadId, taken) {
+// Um jogador já foi levado? Bloqueia a época exata (id) E a mesma PESSOA em outra
+// época (personId/player_id) — assim ninguém escala dois "Pelé" de Copas diferentes.
+function isTaken(p, takenIds, takenPersons) {
+  if (takenIds.has(p.id)) return true;
+  if (p.personId && takenPersons.has(p.personId)) return true;
+  return false;
+}
+function asSet(v) {
+  return v instanceof Set ? v : new Set(v || []);
+}
+
+// Os jogadores do sorteio atual que ainda estão livres (id e pessoa).
+export function freePlayers(squadId, taken, takenPersons) {
   if (!squadId) return [];
-  const set = taken instanceof Set ? taken : new Set(taken);
-  return (SQUAD_BY_ID[squadId]?.players || []).filter((p) => !set.has(p.id));
+  const ids = asSet(taken), persons = asSet(takenPersons);
+  return (SQUAD_BY_ID[squadId]?.players || []).filter((p) => !isTaken(p, ids, persons));
 }
 
 // O jogador encaixa neste slot? Usa player.roles (posições específicas do banco:
@@ -88,9 +99,8 @@ export function compatibleSlots(player, formation, slots) {
 }
 
 // O jogador pode ser escalado agora? (tem slot vazio compatível e está livre)
-export function isPickable(player, formation, slots, taken) {
-  const set = taken instanceof Set ? taken : new Set(taken);
-  if (set.has(player.id)) return false;
+export function isPickable(player, formation, slots, taken, takenPersons) {
+  if (isTaken(player, asSet(taken), asSet(takenPersons))) return false;
   return compatibleSlots(player, formation, slots).length > 0;
 }
 
@@ -128,18 +138,21 @@ export function applyReroll(draft, managerId, kind) {
 // Escala um jogador num slot compatível vazio (regra de ouro: não substitui ocupado).
 export function applyPick(draft, managerId, playerId, slotIndex) {
   const d = structuredClone(draft);
+  if (!d.takenPersons) d.takenPersons = [];
   const mgr = d.mgr[managerId];
   if (!mgr || mgr.done) return d;
-  if (d.taken.includes(playerId)) return d; // já levado por outro
+  if (d.taken.includes(playerId)) return d; // época exata já levada
   const squad = SQUAD_BY_ID[mgr.current?.squadId];
   const player = squad?.players.find((p) => p.id === playerId);
   if (!player) return d;
+  if (player.personId && d.takenPersons.includes(player.personId)) return d; // mesma pessoa, outra época
   const formation = mgrFormation(mgr);
   const slot = formation.slots[slotIndex];
   if (!slot || mgr.slots[slotIndex] != null) return d; // slot inválido/ocupado
   if (!playerFitsSlot(player, slot)) return d; // posição incompatível
   mgr.slots[slotIndex] = playerId;
   d.taken.push(playerId);
+  if (player.personId) d.takenPersons.push(player.personId);
   // próximo sorteio automático
   if (countFilled(mgr.slots) >= formation.slots.length) {
     mgr.done = true;
@@ -188,17 +201,18 @@ export function autoStep(draft, managerId) {
   if (!mgr || mgr.done) return d;
   const formation = mgrFormation(mgr);
   const taken = new Set(d.taken);
-  let free = freePlayers(mgr.current.squadId, taken);
+  const persons = new Set(d.takenPersons || []);
+  let free = freePlayers(mgr.current.squadId, taken, persons);
   let pickable = free
-    .filter((p) => isPickable(p, formation, mgr.slots, taken))
+    .filter((p) => isPickable(p, formation, mgr.slots, taken, persons))
     .sort((a, b) => b.ovr - a.ovr);
   // se nada do sorteio serve, re-sorteia algumas vezes (de graça no auto)
   let tries = 0;
   while (pickable.length === 0 && tries < 12) {
     mgr.current = { squadId: rollSquad(mgr.current.squadId, "team", d.pool) };
-    free = freePlayers(mgr.current.squadId, taken);
+    free = freePlayers(mgr.current.squadId, taken, persons);
     pickable = free
-      .filter((p) => isPickable(p, formation, mgr.slots, taken))
+      .filter((p) => isPickable(p, formation, mgr.slots, taken, persons))
       .sort((a, b) => b.ovr - a.ovr);
     tries++;
   }

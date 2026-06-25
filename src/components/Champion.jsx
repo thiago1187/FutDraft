@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { topScorers, allMatches } from "../engine/tournament.js";
+import { topScorers, allMatches, finalStandings, leagueTable } from "../engine/tournament.js";
 import { Avatar } from "./bits.jsx";
 
 // Procura um 7×0 (placar lendário do 7a0) feito pelo campeão.
@@ -92,6 +92,9 @@ export default function Champion({ state, isHost, actions }) {
   const sevenNil = findSevenNil(t, t.champion);
   const rec = champRecord(t, t.champion);
   const fin = finalInfo(t, t.champion);
+  const isLeague = t.format === "league" || (t.fixtures && !t.rounds);
+  const standings = finalStandings(t, players);
+  const leagueRows = isLeague ? leagueTable(t, players) : [];
   const finalLabel = fin
     ? `${fin.gf} — ${fin.ga}${fin.pens ? ` (${fin.pens})` : ""}`
     : `${rec.W}V ${rec.D}E ${rec.L}D`;
@@ -175,6 +178,54 @@ export default function Champion({ state, isHost, actions }) {
           </div>
         </div>
       </div>
+
+      {standings.length > 1 && (
+        <div className={`champ-standings ${reveal ? "in" : ""}`}>
+          <div className="champ-standings-title">Classificação final{isLeague ? " · pontos corridos" : " · mata-mata"}</div>
+
+          {isLeague ? (
+            <div className="table champ-table">
+              <div className="table-head">
+                <span className="th-pos">#</span>
+                <span className="th-team">Time</span>
+                <span>P</span><span>J</span><span>V</span><span>E</span><span>D</span><span>SG</span>
+              </div>
+              {leagueRows.map((row, i) => {
+                const p = players.find((pl) => pl.id === row.id);
+                return (
+                  <div key={row.id} className={`table-row ${row.id === t.champion ? "leader" : ""}`}>
+                    <span className="th-pos">{i + 1}</span>
+                    <span className="th-team">
+                      <Avatar emoji={p?.emoji} color={p?.color} size={22} />
+                      <span className="tr-name">{p?.teamName}</span>
+                    </span>
+                    <span className="tr-pts">{row.Pts}</span>
+                    <span>{row.P}</span>
+                    <span>{row.W}</span>
+                    <span>{row.D}</span>
+                    <span>{row.L}</span>
+                    <span>{row.GD > 0 ? "+" + row.GD : row.GD}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="standings-list">
+              {standings.map((row) => {
+                const p = players.find((pl) => pl.id === row.id);
+                return (
+                  <div key={row.id} className={`standings-row ${row.id === t.champion ? "is-champ" : ""}`}>
+                    <span className="standings-pos">{row.pos}º</span>
+                    <Avatar emoji={p?.emoji} color={p?.color} size={28} />
+                    <span className="standings-team">{p?.teamName}</span>
+                    <span className="standings-detail">{row.detail}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

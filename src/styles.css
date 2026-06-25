@@ -1785,6 +1785,21 @@ body {
 .champ-actions .btn-leave { flex: 0 0 auto; min-width: 150px; }
 .champ-actions .waiting { flex: 1; font-family: var(--body); font-style: italic; color: var(--muted); display: flex; align-items: center; }
 
+/* classificação final (todos os times, ambos os formatos) */
+.champ-standings { margin-top: 24px; opacity: 0; transform: translateY(12px); transition: opacity .5s ease .18s, transform .5s ease .18s; }
+.champ-standings.in { opacity: 1; transform: none; }
+.champ-standings-title { font-family: var(--head); font-weight: 600; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin-bottom: 11px; }
+.standings-list { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.standings-row { display: flex; align-items: center; gap: 11px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; }
+.standings-row.is-champ { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, var(--paper)); }
+.standings-pos { font-family: var(--display); font-size: 17px; color: var(--muted2); width: 32px; text-align: center; flex-shrink: 0; }
+.standings-row.is-champ .standings-pos { color: var(--gold); }
+.standings-team { flex: 1; min-width: 0; font-family: var(--head); font-weight: 700; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.standings-detail { font-family: var(--head); font-weight: 600; font-size: 12px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.standings-sub { font-style: normal; color: var(--muted2); font-weight: 500; }
+.champ-table { max-width: 640px; }
+.champ-table .table-row.leader .tr-name { color: var(--ink); }
+
 /* responsivo: empilha em telas estreitas */
 @media (max-width: 880px) {
   .cup-body, .champ-body { flex-direction: column; }
@@ -1792,5 +1807,6 @@ body {
   .cup-title { font-size: 38px; }
   .cup-head { flex-direction: column; gap: 12px; }
   .champ-actions { flex-direction: column; }
+  .standings-list { grid-template-columns: 1fr; }
   .champ-actions .btn-leave { min-width: 0; }
 }

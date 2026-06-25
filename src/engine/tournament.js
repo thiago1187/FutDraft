@@ -154,6 +154,51 @@ function leagueChampion(t, players) {
   return rows[0] ? rows[0].id : null;
 }
 
+// Rótulo do estágio em que um time foi eliminado no mata-mata (e = índice da rodada).
+function koStageLabel(t, e) {
+  if (e === Infinity) return "Campeão";
+  if (e < 0 || !t.rounds[e]) return "—";
+  const n = t.rounds[e].length; // nº de jogos da rodada → nome da fase
+  if (n === 1) return "Vice-campeão";
+  return roundLabel(n); // Semifinal, Quartas de final, Oitavas…
+}
+
+// Classificação FINAL do campeonato (ambos os formatos) para a tela de campeão.
+// League: ordem da tabela (pts/SG/GP). Mata-mata: posição pela rodada de eliminação
+// (quem cai mais tarde fica melhor; eliminados na mesma fase empatam na posição).
+export function finalStandings(t, players) {
+  if (!t) return [];
+  // Detecção ESTRUTURAL (robusta mesmo se `format` faltar): liga tem fixtures, mata-mata tem rounds.
+  if (t.format === "league" || (t.fixtures && !t.rounds)) {
+    return leagueTable(t, players).map((r, i) => ({
+      id: r.id,
+      pos: i + 1,
+      detail: `${r.Pts} pts`,
+      sub: `${r.P}J · ${r.W}V ${r.D}E ${r.L}D · SG ${r.GD > 0 ? "+" : ""}${r.GD}`,
+    }));
+  }
+  if (!t.rounds?.length) return [];
+  const elim = {};
+  for (let r = 0; r < t.rounds.length; r++) {
+    for (const m of t.rounds[r]) {
+      if (m.isBye || !m.result) continue;
+      const loser = m.result.winner === "home" ? m.awayId : m.homeId;
+      if (loser) elim[loser] = r;
+    }
+  }
+  const ids = new Set();
+  for (const r of t.rounds) for (const m of r) { if (m.homeId) ids.add(m.homeId); if (m.awayId) ids.add(m.awayId); }
+  const arr = [...ids].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1) }));
+  arr.sort((a, b) => b.e - a.e);
+  const out = [];
+  let pos = 1;
+  for (let i = 0; i < arr.length; i++) {
+    if (i > 0 && arr[i].e !== arr[i - 1].e) pos = i + 1; // nova fase → nova posição
+    out.push({ id: arr[i].id, pos, detail: koStageLabel(t, arr[i].e), sub: null });
+  }
+  return out;
+}
+
 // ---------- API GERAL ----------
 export function createTournament(players, settings) {
   const ids = players.map((p) => p.id);

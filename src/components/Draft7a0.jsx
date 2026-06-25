@@ -19,6 +19,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
   const mgr = draft.mgr[editId];
   const formation = findFormation(11, mgr?.formation);
   const taken = useMemo(() => new Set(draft.taken), [draft.taken]);
+  const takenPersons = useMemo(() => new Set(draft.takenPersons || []), [draft.takenPersons]);
   const difficulty = draft.difficulty;
   const hideRatings = difficulty === "almanac";
 
@@ -36,7 +37,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
 
   // sorteio atual
   const curSquad = mgr?.current?.squadId ? SQUAD_BY_ID[mgr.current.squadId] : null;
-  const rollFree = mgr?.current ? freePlayers(mgr.current.squadId, taken) : [];
+  const rollFree = mgr?.current ? freePlayers(mgr.current.squadId, taken, takenPersons) : [];
 
   function dispatch(intent) {
     actions.dispatchDraft({ ...intent, managerId: editId });
@@ -107,7 +108,7 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
   const compat = selPlayer ? compatibleSlots(selPlayer, formation, mgr.slots) : [];
 
   function pickPlayer(p) {
-    if (!isPickable(p, formation, mgr.slots, taken)) return;
+    if (!isPickable(p, formation, mgr.slots, taken, takenPersons)) return;
     setMoveFrom(null);
     setSelPlayer((cur) => (cur?.id === p.id ? null : p));
   }
@@ -229,14 +230,14 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
                     {rollFree
                       .slice()
                       .sort((a, b) => {
-                        const pa = isPickable(a, formation, mgr.slots, taken) ? 0 : 1;
-                        const pb = isPickable(b, formation, mgr.slots, taken) ? 0 : 1;
+                        const pa = isPickable(a, formation, mgr.slots, taken, takenPersons) ? 0 : 1;
+                        const pb = isPickable(b, formation, mgr.slots, taken, takenPersons) ? 0 : 1;
                         if (pa !== pb) return pa - pb;
                         if (a.pos !== b.pos) return POS_RANK[a.pos] - POS_RANK[b.pos];
                         return b.ovr - a.ovr;
                       })
                       .map((p) => {
-                        const pickable = isPickable(p, formation, mgr.slots, taken);
+                        const pickable = isPickable(p, formation, mgr.slots, taken, takenPersons);
                         return (
                           <button
                             key={p.id}

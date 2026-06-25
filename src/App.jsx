@@ -302,6 +302,7 @@ export default function App() {
         });
         let draft = {
           taken: [],
+          takenPersons: [], // player_id (pessoa) já levados — bloqueia o mesmo jogador de outra época
           mgr,
           difficulty: prev.settings.difficulty,
           turnTimer: prev.settings.turnTimer || 30,
