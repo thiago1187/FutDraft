@@ -521,12 +521,17 @@ function compact(s) {
 
 function isPenDecided(h, a, score) {
   const hd = h.length, ad = a.length;
-  const remH = Math.max(0, 5 - hd), remA = Math.max(0, 5 - ad);
-  if (hd <= 5 || ad <= 5) {
-    if (score[0] > score[1] + remA) return true;
-    if (score[1] > score[0] + remH) return true;
+  // Morte súbita: os dois já bateram 5+. Só decide ao fim de uma rodada COMPLETA
+  // (mesmo número de cobranças) e com placar diferente — assim o adversário
+  // sempre tem direito à sua cobrança antes de a disputa acabar.
+  if (hd >= 5 && ad >= 5) {
+    return hd === ad && score[0] !== score[1];
   }
-  if (hd >= 5 && ad >= 5 && hd === ad && score[0] !== score[1]) return true;
+  // Melhor de 5 (regulamentar): decide quando a vantagem é inalcançável pelas
+  // cobranças que ainda restam dentro das 5.
+  const remH = 5 - hd, remA = 5 - ad;
+  if (score[0] > score[1] + remA) return true;
+  if (score[1] > score[0] + remH) return true;
   return false;
 }
 
