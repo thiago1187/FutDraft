@@ -7,7 +7,7 @@ import {
 } from "../engine/tournament.js";
 import { buildTeam } from "../engine/team.js";
 import { teamRatings } from "../engine/match.js";
-import { Avatar, Crown, escudoImg } from "./bits.jsx";
+import { Avatar, Crown, Ovr, escudoImg } from "./bits.jsx";
 import MatchView from "./MatchView.jsx";
 import MatchLive from "./MatchLive.jsx";
 
@@ -106,6 +106,10 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
     }
   }
 
+  // Overall de cada time (aparece já no início do torneio, logo após o draft).
+  const ovrById = {};
+  for (const p of players) ovrById[p.id] = teamOverall(state, p.id);
+
   return (
     <div className="screen tournament cup-screen">
       {/* CABEÇALHO */}
@@ -135,9 +139,9 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
       <div className="cup-body">
         <div className="cup-main">
           {isKnock ? (
-            <KnockoutBracket t={t} players={players} current={upcoming} />
+            <KnockoutBracket t={t} players={players} current={upcoming} ovrById={ovrById} />
           ) : (
-            <LeagueView t={t} players={players} current={upcoming} />
+            <LeagueView t={t} players={players} current={upcoming} ovrById={ovrById} />
           )}
         </div>
 
@@ -214,7 +218,7 @@ function NextPanel({ state, match, players, roundName, isHost, actions }) {
 }
 
 // ---------- CHAVEAMENTO (mata-mata) com fases futuras projetadas ----------
-function KnockoutBracket({ t, players, current }) {
+function KnockoutBracket({ t, players, current, ovrById }) {
   const round0 = t.rounds[0];
   const total = Math.round(Math.log2(round0.length * 2)); // nº de fases (até a final)
   const currentId = current?.id;
@@ -249,7 +253,7 @@ function KnockoutBracket({ t, players, current }) {
         <div className="bracket-col" key={ri}>
           <div className="bracket-round">{labels[ri]}</div>
           {slots.map((s, j) => (
-            <BracketSlot key={j} slot={s} players={players} feeder={ri > 0 ? labels[ri - 1] : null} />
+            <BracketSlot key={j} slot={s} players={players} ovrById={ovrById} feeder={ri > 0 ? labels[ri - 1] : null} />
           ))}
         </div>
       ))}
@@ -273,7 +277,7 @@ function KnockoutBracket({ t, players, current }) {
   );
 }
 
-function BracketSlot({ slot, players, feeder }) {
+function BracketSlot({ slot, players, ovrById, feeder }) {
   const home = players.find((p) => p.id === slot.homeId);
   const away = players.find((p) => p.id === slot.awayId);
   const r = slot.match?.result;
@@ -295,21 +299,22 @@ function BracketSlot({ slot, players, feeder }) {
   const awayWin = r && r.winner === "away";
   return (
     <div className={`match-card ${slot.current ? "current" : ""} ${slot.match?.played ? "played" : ""}`}>
-      <SlotTeam player={home} placeholder={placeholder} goals={r ? r.homeGoals : null} win={homeWin} />
-      <SlotTeam player={away} placeholder={placeholder} goals={r ? r.awayGoals : null} win={awayWin} />
+      <SlotTeam player={home} placeholder={placeholder} ovr={home && ovrById?.[home.id]} goals={r ? r.homeGoals : null} win={homeWin} />
+      <SlotTeam player={away} placeholder={placeholder} ovr={away && ovrById?.[away.id]} goals={r ? r.awayGoals : null} win={awayWin} />
       {r && r.pens && <div className="mc-pens">pênaltis {r.pens.home} — {r.pens.away}</div>}
       {slot.current && <span className="mc-badge">agora</span>}
     </div>
   );
 }
 
-function SlotTeam({ player, placeholder, goals, win }) {
+function SlotTeam({ player, placeholder, ovr, goals, win }) {
   return (
     <div className={`mc-team ${win ? "win" : ""}`}>
       {player ? (
         <>
           <Avatar emoji={player.emoji} color={player.color} size={22} />
           <span className="mc-name">{player.teamName}</span>
+          {ovr != null && <Ovr value={ovr} />}
         </>
       ) : (
         <span className="mc-name muted ph">{placeholder}</span>
@@ -320,7 +325,7 @@ function SlotTeam({ player, placeholder, goals, win }) {
 }
 
 // ---------- PONTOS CORRIDOS ----------
-function LeagueView({ t, players, current }) {
+function LeagueView({ t, players, current, ovrById }) {
   const table = leagueTable(t, players);
   const rounds = {};
   t.fixtures.forEach((f) => {
@@ -349,6 +354,7 @@ function LeagueView({ t, players, current }) {
                 <span className="th-team">
                   <Avatar emoji={p?.emoji} color={p?.color} size={22} />
                   <span className="tr-name">{p?.teamName}</span>
+                  {ovrById?.[row.id] != null && <Ovr value={ovrById[row.id]} />}
                   {i === 0 && row.P > 0 && <Crown />}
                 </span>
                 <span className="tr-pts">{row.Pts}</span>
@@ -373,8 +379,8 @@ function LeagueView({ t, players, current }) {
               const r = m.result;
               return (
                 <div className={`match-card ${current && current.id === m.id ? "current" : ""} ${m.played ? "played" : ""}`} key={m.id}>
-                  <SlotTeam player={home} goals={r ? r.homeGoals : null} win={r && r.winner === "home"} />
-                  <SlotTeam player={away} goals={r ? r.awayGoals : null} win={r && r.winner === "away"} />
+                  <SlotTeam player={home} ovr={home && ovrById?.[home.id]} goals={r ? r.homeGoals : null} win={r && r.winner === "home"} />
+                  <SlotTeam player={away} ovr={away && ovrById?.[away.id]} goals={r ? r.awayGoals : null} win={r && r.winner === "away"} />
                   {current && current.id === m.id && <span className="mc-badge">agora</span>}
                 </div>
               );
