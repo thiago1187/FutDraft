@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createLiveMatch } from "../engine/liveMatch.js";
 import { teamRatings } from "../engine/match.js";
-import { flagUrl, escudoFlag } from "./bits.jsx";
+import { escudoImg } from "./bits.jsx";
 import Pitch2D from "./Pitch2D.jsx";
 
 const SPEEDS = [1, 2, 4];
@@ -10,11 +10,16 @@ function badge(name = "") {
   const w = name.replace(/\s+FC$/i, "").trim().split(/\s+/);
   return ((w[0]?.[0] || "") + (w[1]?.[0] || w[0]?.[1] || "")).toUpperCase();
 }
-// Escudo do time no placar: bandeira (imagem) se for seleção, senão o emoji/iniciais.
+// Escudo do time no placar: bandeira (imagem) se for seleção — resolve fl:/fls:/emoji.
+// Cai no emoji só se for de fato um emoji visível; senão mostra as iniciais coloridas
+// (nunca o texto cru de um código tipo "fls:http..." ou "URS").
 function TeamBadge({ mgr, name, color }) {
-  const fcode = mgr && escudoFlag(mgr.emoji);
-  if (fcode) return <span className="mlf-badge flag"><img src={flagUrl(fcode)} alt="" /></span>;
-  if (mgr && mgr.emoji) return <span className="mlf-badge" style={{ background: color }}>{mgr.emoji}</span>;
+  const src = mgr && escudoImg(mgr.emoji);
+  if (src) return <span className="mlf-badge flag"><img src={src} alt="" /></span>;
+  const em = mgr?.emoji;
+  if (em && !/^fls?:/.test(em) && !/^[A-Za-z]{2,4}$/.test(em)) {
+    return <span className="mlf-badge" style={{ background: color }}>{em}</span>;
+  }
   return <span className="mlf-badge" style={{ background: color }}>{badge(name)}</span>;
 }
 function capital(s = "") {
