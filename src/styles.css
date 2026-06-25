@@ -1168,6 +1168,7 @@ body {
 
 .pen-shooting { position: absolute; left: 0; right: 0; bottom: 6px; text-align: center; font-family: var(--head); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; color: #fff; text-transform: uppercase; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); z-index: 5; }
 .pen-shooting b { color: var(--gold); }
+.pen-countdown { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 9px; background: var(--red); color: #fff; font-family: var(--display); font-size: 12px; letter-spacing: 0; }
 .pen-rows { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
 .pen-row { display: flex; align-items: center; gap: 10px; }
 .pen-tag { width: 30px; font-family: var(--head); font-weight: 700; font-size: 11px; text-transform: uppercase; }

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createLiveMatch } from "../engine/liveMatch.js";
-import { teamRatings } from "../engine/match.js";
 import { escudoImg } from "./bits.jsx";
 import Pitch2D from "./Pitch2D.jsx";
 
 const SPEEDS = [1, 2, 4];
+const PEN_DIRS = ["cantoE", "meio", "cantoD"];
+const PEN_TIMER_MS = 3000; // 3s para cada técnico escolher; depois vai no aleatório
+const rndDir = () => PEN_DIRS[Math.floor(Math.random() * PEN_DIRS.length)];
+const otherSide = (s) => (s === "home" ? "away" : "home");
 
 function badge(name = "") {
   const w = name.replace(/\s+FC$/i, "").trim().split(/\s+/);
@@ -53,6 +56,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   }
   const humanSides = ["home", "away"].filter((s) => !((s === "home" ? homeMgr : awayMgr)?.isBot));
   const controllable = isLocal ? humanSides : (ownedSideOrNull() ? [ownedSideOrNull()] : []);
+  const sideIsBot = (s) => !!((s === "home" ? homeMgr : awayMgr)?.isBot);
 
   const [, setTick] = useState(0);
   const [snap, setSnap] = useState(null);
@@ -120,11 +124,40 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- ÁRBITRO DOS PÊNALTIS (anfitrião) ----
+  // Preenche o lado da CPU na hora; espera os humanos até o prazo de 3s e então
+  // sorteia o que faltar; quando cobrador e goleiro escolheram, dispara a cobrança.
+  useEffect(() => {
+    if (!controller || !pens || pens.done || pens.animating) return;
+    const shoot = pens.turn, goalie = otherSide(pens.turn);
+    if (pens.picks?.aim == null && sideIsBot(shoot)) { penApplyPick("aim", rndDir(), pens.round); return; }
+    if (pens.picks?.gk == null && sideIsBot(goalie)) { penApplyPick("gk", rndDir(), pens.round); return; }
+    if (pens.picks?.aim != null && pens.picks?.gk != null) { resolvePenKick(); return; }
+    const ms = Math.max(0, (pens.deadline || 0) - Date.now());
+    const id = setTimeout(() => {
+      setPens((prev) => {
+        if (!prev || prev.done || prev.animating) return prev;
+        const p = structuredClone(prev);
+        if (p.picks.aim == null) p.picks.aim = rndDir();
+        if (p.picks.gk == null) p.picks.gk = rndDir();
+        const side = p.turn;
+        const scored = p.picks.gk !== p.picks.aim;
+        p.lastKick = { aim: p.picks.aim, scored, gkDir: p.picks.gk, side, id: (prev.lastKick?.id || 0) + 1 };
+        p.animating = true;
+        if (room) room.broadcast("pens", p);
+        return p;
+      });
+    }, ms);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller, pens?.round, pens?.picks?.aim, pens?.picks?.gk, pens?.animating, pens?.done, pens?.turn]);
+
   function applyCommand(cmd) {
     const e = engineRef.current;
     if (!e) return;
     if (cmd.kind === "tactic") e.setTactic(cmd.side, cmd.patch);
     if (cmd.kind === "ready") e.setReady(cmd.side);
+    if (cmd.kind === "penpick") penApplyPick(cmd.role, cmd.value, cmd.round);
     if (cmd.kind === "sub") {
       const bp = (cmd.side === "home" ? home.bench : away.bench).find((p) => p.id === cmd.inId);
       e.substitute(cmd.side, cmd.outId, bp);
@@ -160,43 +193,47 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     if (!e) return;
     setPaused(e.togglePause());
   }
-  function startPens(e) {
-    const sh = teamRatings(home.squad), sa = teamRatings(away.squad);
-    const probH = Math.min(0.92, Math.max(0.55, 0.62 + (sh.overall - 70) / 120));
-    const probA = Math.min(0.92, Math.max(0.55, 0.62 + (sa.overall - 70) / 120));
-    setPens({ home: [], away: [], probH, probA, turn: "home", done: false, score: [0, 0] });
+  function startPens() {
+    setPens({
+      home: [], away: [], turn: "home", score: [0, 0],
+      round: 0, picks: { aim: null, gk: null }, deadline: Date.now() + PEN_TIMER_MS,
+      animating: false, done: false,
+    });
   }
-  // Chute: o COBRADOR escolhe o canto; o goleiro (CPU) mergulha aleatório. Acertou = defesa, errou = gol.
-  function kick(aim) {
+  // Uma escolha local (canto do cobrador OU mergulho do goleiro). No online, manda
+  // a intent pro anfitrião; no anfitrião/local, aplica direto.
+  function penChoose(role, value) {
+    const round = pens?.round;
+    if (controller) penApplyPick(role, value, round);
+    else room?.broadcast?.("cmd", { kind: "penpick", role, value, round });
+  }
+  // Anfitrião registra a escolha de um lado (aim = cobrador, gk = goleiro).
+  function penApplyPick(role, value, round) {
     setPens((prev) => {
       if (!prev || prev.done || prev.animating) return prev;
+      if (round != null && prev.round !== round) return prev; // escolha de rodada antiga
+      if (prev.picks?.[role] != null) return prev; // já escolhido
+      const p = structuredClone(prev);
+      p.picks[role] = value;
+      if (room) room.broadcast("pens", p);
+      return p;
+    });
+  }
+  // Anfitrião dispara a cobrança quando cobrador e goleiro já escolheram.
+  function resolvePenKick() {
+    setPens((prev) => {
+      if (!prev || prev.done || prev.animating) return prev;
+      if (prev.picks?.aim == null || prev.picks?.gk == null) return prev;
       const p = structuredClone(prev);
       const side = p.turn;
-      const dirs = ["cantoE", "meio", "cantoD"];
-      const gkDir = dirs[Math.floor(Math.random() * dirs.length)];
-      const scored = gkDir !== aim;
-      p.lastKick = { aim, scored, gkDir, side, id: (prev.lastKick?.id || 0) + 1 };
+      const scored = p.picks.gk !== p.picks.aim; // goleiro acertou o canto = defesa
+      p.lastKick = { aim: p.picks.aim, scored, gkDir: p.picks.gk, side, id: (prev.lastKick?.id || 0) + 1 };
       p.animating = true;
       if (room) room.broadcast("pens", p);
       return p;
     });
   }
-  // Defesa: o GOLEIRO escolhe onde mergulhar; o cobrador (CPU) chuta aleatório.
-  function defend(gkChoice) {
-    setPens((prev) => {
-      if (!prev || prev.done || prev.animating) return prev;
-      const p = structuredClone(prev);
-      const side = p.turn;
-      const dirs = ["cantoE", "meio", "cantoD"];
-      const aim = dirs[Math.floor(Math.random() * dirs.length)];
-      const scored = gkChoice !== aim;
-      p.lastKick = { aim, scored, gkDir: gkChoice, side, id: (prev.lastKick?.id || 0) + 1 };
-      p.animating = true;
-      if (room) room.broadcast("pens", p);
-      return p;
-    });
-  }
-  // Registra o resultado do lance; ao decidir, guarda o resultado (só finaliza no "Continuar").
+  // Registra o resultado do lance e prepara a próxima cobrança (reseta escolhas e timer).
   function commitKick() {
     setPens((prev) => {
       if (!prev || !prev.lastKick || !prev.animating) return prev;
@@ -204,8 +241,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       const { side, scored } = p.lastKick;
       p[side].push(scored);
       if (scored) p.score[side === "home" ? 0 : 1]++;
-      p.turn = side === "home" ? "away" : "home";
+      p.turn = otherSide(side);
       p.animating = false;
+      p.picks = { aim: null, gk: null };
+      p.round = (p.round || 0) + 1;
+      p.deadline = Date.now() + PEN_TIMER_MS;
       if (isPenDecided(p.home, p.away, p.score)) {
         p.done = true;
         if (engineRef.current) penResultRef.current = engineRef.current.result({ home: p.score[0], away: p.score[1], order: [] });
@@ -353,8 +393,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       {pens && (
         <Penalties
           pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
-          canKick={controller} mySide={isLocal ? null : mySide} onKick={kick} onDefend={defend} onResolve={commitKick}
-          isLocal={isLocal} canFinish={controller}
+          controllable={controllable} isLocal={isLocal} isHost={controller} canFinish={controller}
+          onAim={(v) => penChoose("aim", v)} onGk={(v) => penChoose("gk", v)} onResolve={commitKick}
           onContinue={() => penResultRef.current && finalize(penResultRef.current)}
           onLeave={onLeave}
         />
@@ -494,33 +534,44 @@ function isPenDecided(h, a, score) {
 const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
 const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, mySide, onKick, onDefend, onResolve, isLocal, canFinish, onContinue, onLeave }) {
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllable, isLocal, isHost, canFinish, onAim, onGk, onResolve, onContinue, onLeave }) {
   const lk = pens.lastKick;
   const [phase, setPhase] = useState("idle"); // idle | shoot | result
+  const [, setClock] = useState(0); // re-render p/ a contagem regressiva
 
-  // anima quando chega um novo lance; ao fim, registra (só o controlador)
+  // anima quando chega um novo lance; ao fim, o anfitrião registra o resultado
   useEffect(() => {
     if (!pens.animating || !lk) { setPhase("idle"); return; }
     setPhase("shoot");
     const t1 = setTimeout(() => setPhase("result"), 850);
-    const t2 = canKick ? setTimeout(() => onResolve(), 1250) : null;
+    const t2 = isHost ? setTimeout(() => onResolve(), 1250) : null;
     return () => { clearTimeout(t1); if (t2) clearTimeout(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lk?.id, pens.animating]);
 
+  // tique da contagem regressiva enquanto se escolhe
+  useEffect(() => {
+    if (pens.done || pens.animating) return;
+    const id = setInterval(() => setClock((n) => n + 1), 200);
+    return () => clearInterval(id);
+  }, [pens.done, pens.animating, pens.round]);
+
   const shooting = pens.turn;
+  const goalie = shooting === "home" ? "away" : "home";
   const shooterColor = shooting === "home" ? homeColor : awayColor;
   const target = lk ? AIM_POS[lk.aim] : AIM_POS.meio;
   const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
   const animating = pens.animating && phase !== "idle";
   const showResult = phase === "result" && lk;
+  const choosing = !pens.done && !pens.animating;
 
-  // mySide=null → modo local (controla os dois). mySide definido → online:
-  // se é a sua vez de cobrar você é o cobrador; senão você é o goleiro adversário.
-  const isShooter = !mySide || pens.turn === mySide;
-  const isGoalie = !!mySide && pens.turn !== mySide;
+  // lados que ESTE aparelho controla nesta cobrança
+  const iShoot = (controllable || []).includes(shooting);
+  const iGoalie = (controllable || []).includes(goalie);
+  const needAim = iShoot && pens.picks?.aim == null;
+  const needGk = iGoalie && pens.picks?.gk == null;
+  const remain = pens.deadline ? Math.max(0, Math.ceil((pens.deadline - Date.now()) / 1000)) : null;
   const shootingTeamName = shooting === "home" ? homeName : awayName;
-  const defendingTeamName = shooting === "home" ? awayName : homeName;
 
   const dots = (arr, n = 5) => {
     const out = [];
@@ -568,10 +619,10 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, my
           {/* etiqueta */}
           {showResult ? (
             <div className={`pen-flash ${lk.scored ? "goal" : "save"}`}>{lk.scored ? "GOL!" : "DEFENDEU!"}</div>
-          ) : isGoalie ? (
-            <div className="pen-shooting">Defender: <b style={{ color: shooting === "home" ? awayColor : homeColor }}>{defendingTeamName}</b></div>
+          ) : choosing ? (
+            <div className="pen-shooting">Cobrando: <b style={{ color: shooterColor }}>{shootingTeamName}</b>{remain != null && <span className="pen-countdown">{remain}s</span>}</div>
           ) : (
-            <div className="pen-shooting">Cobrando: <b>{shootingTeamName}</b></div>
+            <div className="pen-shooting">Cobrando…</div>
           )}
         </div>
 
@@ -580,29 +631,36 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, canKick, my
           <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
         </div>
 
-        {!pens.done && canKick && !pens.animating && isShooter && (
+        {/* ESCOLHAS — cobrador e goleiro, em paralelo, com timer de 3s */}
+        {choosing && needAim && (
           <div className="pen-aim">
-            <div className="pen-aim-label">Escolha o canto para chutar</div>
+            <div className="pen-aim-label">Você cobra — escolha o canto {remain != null && `(${remain}s)`}</div>
             {[["cantoE", "↖ Canto"], ["meio", "↑ Meio"], ["cantoD", "↗ Canto"]].map(([k, l]) => (
-              <button key={k} className="pen-aim-btn" onClick={() => onKick(k)}>{l}</button>
+              <button key={k} className="pen-aim-btn" onClick={() => onAim(k)}>{l}</button>
             ))}
           </div>
         )}
-        {!pens.done && canKick && !pens.animating && isGoalie && (
+        {choosing && needGk && (
           <div className="pen-aim pen-aim-defend">
-            <div className="pen-aim-label">Escolha onde mergulhar</div>
+            <div className="pen-aim-label">Você defende — escolha o mergulho {remain != null && `(${remain}s)`}</div>
             {[["cantoE", "↖ Mergulhar"], ["meio", "↑ Ficar no meio"], ["cantoD", "↗ Mergulhar"]].map(([k, l]) => (
-              <button key={k} className="pen-aim-btn pen-def-btn" onClick={() => onDefend(k)}>{l}</button>
+              <button key={k} className="pen-aim-btn pen-def-btn" onClick={() => onGk(k)}>{l}</button>
             ))}
           </div>
         )}
-        {!pens.done && canKick && pens.animating && <div className="pen-wait">Cobrando…</div>}
-        {!pens.done && !canKick && <div className="pen-wait">{pens.animating ? "Cobrando…" : "Aguardando a cobrança…"}</div>}
+        {choosing && !needAim && !needGk && (
+          <div className="pen-wait">
+            {controllable?.length === 0
+              ? `Aguardando os técnicos… ${remain != null ? remain + "s" : ""}`
+              : `Escolha feita! Aguardando o adversário… ${remain != null ? remain + "s" : ""}`}
+          </div>
+        )}
+        {pens.animating && <div className="pen-wait">Cobrança!</div>}
         {pens.done && (() => {
           const penWinner = pens.score[0] > pens.score[1] ? "home" : "away";
           const winnerName = penWinner === "home" ? homeName : awayName;
           const winnerColor = penWinner === "home" ? homeColor : awayColor;
-          const iWon = isLocal || mySide === penWinner;
+          const iWon = isLocal || controllable?.includes(penWinner);
           return (
             <>
               <div className="pen-done">Decidido nos pênaltis!</div>
