@@ -146,9 +146,9 @@ function calibLive() {
   pass &= line("No alvo por time", otT.toFixed(1), "3–7", within(otT, 3, 7));
   pass &= line("Escanteios por time", coT.toFixed(1), "3.5–7", within(coT, 3.5, 7));
   pass &= line("Faltas por time", (F / N_LIVE / 2).toFixed(1), "informativo", true);
-  pass &= line("Vermelhos por jogo", (R / N_LIVE).toFixed(3), "0.15–0.45", within(R / N_LIVE, 0.15, 0.45));
+  pass &= line("Vermelhos por jogo", (R / N_LIVE).toFixed(3), "~0.10 (0.06–0.16)", within(R / N_LIVE, 0.06, 0.16));
   pass &= line("Amarelos por jogo", (Y / N_LIVE).toFixed(2), "informativo", true);
-  pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "0.15–0.40", within(P / N_LIVE, 0.15, 0.40));
+  pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "~0.20 (0.13–0.28)", within(P / N_LIVE, 0.13, 0.28));
   pass &= line("Estados impossíveis (noAlvo>chutes)", badOT, "0", badOT === 0);
   pass &= line("Estados impossíveis (gol>chutes)", badGoal, "0", badGoal === 0);
   pass &= line("Simetria |home-away| (sem mando)", pctStr(sym), "< 4 pp", sym < 0.04);

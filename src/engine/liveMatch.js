@@ -357,7 +357,7 @@ export function createLiveMatch(home, away, opts = {}) {
     const off = cardOffender(byside, fouler);
     const r = rnd();
     const pressao = state.tactics[byside].marking === "pressao";
-    if (off && r < (pressao ? 0.04 : 0.022)) {
+    if (off && r < (pressao ? 0.020 : 0.011)) {
       doRedCard(byside, off, "Cartão vermelho"); // vermelho direto
     } else if (off && r < (pressao ? 0.58 : 0.45)) {
       off.yellow = (off.yellow || 0) + 1;
@@ -478,7 +478,7 @@ export function createLiveMatch(home, away, opts = {}) {
     // pênalti EM JOGO (raro, ~0.25/jogo) — proporcional ao ataque; PAUSA o jogo p/ a
     // cobrança (mini-tela). Preempta o gol do minuto.
     for (const side of ["home", "away"]) {
-      if (rnd() < state.lam[side] * 0.0011) { doPenalty(side); return; }
+      if (rnd() < state.lam[side] * 0.00082) { doPenalty(side); return; }
     }
     // sorteio de gol (no máx. 1 por minuto p/ a cinemática ser vista)
     for (const side of ["home", "away"]) {
