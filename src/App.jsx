@@ -27,6 +27,7 @@ import Tournament from "./components/Tournament.jsx";
 import Champion from "./components/Champion.jsx";
 import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
+import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
@@ -114,6 +115,7 @@ export default function App() {
   const [auth, setAuth] = useState(hasSupabase ? undefined : null);
   const [guest, setGuest] = useState(false);
   const [profile, setProfile] = useState(null);
+  const [showProfile, setShowProfile] = useState(false);
   const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
   const [gstate, setGstate] = useState(null);
@@ -517,6 +519,20 @@ export default function App() {
     );
   }
 
+  // Tela de perfil (acessível só da Home, logado).
+  if (showProfile && auth) {
+    return (
+      <div className="app app-full">
+        <Profile
+          myId={myId}
+          profile={profile}
+          onClose={() => setShowProfile(false)}
+          onProfileChange={(p) => p && setProfile(p)}
+        />
+      </div>
+    );
+  }
+
   if (screen === "home" || !gstate) {
     if (screen === "room" && !gstate) {
       return (
@@ -540,6 +556,7 @@ export default function App() {
           isLocal={!hasSupabase}
           account={auth ? profile : null}
           onSignOut={auth ? onSignOut : null}
+          onOpenProfile={auth ? () => setShowProfile(true) : null}
         />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>

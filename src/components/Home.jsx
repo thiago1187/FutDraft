@@ -7,7 +7,7 @@ const STEPS = [
   { n: "03", t: "Simule a copa", d: "Partidas 2D, pênaltis e troféu" },
 ];
 
-export default function Home({ onCreate, onJoin, onRejoin, session, connecting, error, isLocal, account, onSignOut }) {
+export default function Home({ onCreate, onJoin, onRejoin, session, connecting, error, isLocal, account, onSignOut, onOpenProfile }) {
   const [name, setName] = useState(account?.display_name || session?.name || "");
   const [code, setCode] = useState("");
 
@@ -57,9 +57,14 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
         {account && (
           <div className="home-account">
             <span className="home-account-who">Logado como <strong>@{account.username}</strong></span>
-            {onSignOut && (
-              <button className="home-account-out" onClick={onSignOut}>Sair</button>
-            )}
+            <div className="home-account-actions">
+              {onOpenProfile && (
+                <button className="home-account-profile" onClick={onOpenProfile}>Meu perfil</button>
+              )}
+              {onSignOut && (
+                <button className="home-account-out" onClick={onSignOut}>Sair</button>
+              )}
+            </div>
           </div>
         )}
 
