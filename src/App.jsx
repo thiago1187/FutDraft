@@ -18,6 +18,7 @@ import {
   applyMatchResult,
   nextMatch,
   tournamentFinished,
+  allMatches,
 } from "./engine/tournament.js";
 import { TEAM_EMOJIS, freeColor, Logo } from "./components/bits.jsx";
 import Home from "./components/Home.jsx";
@@ -29,6 +30,8 @@ import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
 import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
+import * as history from "./lib/history.js";
+import { isUuid } from "./lib/history.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -60,6 +63,8 @@ function applyDraftIntent(prev, intent, players, settings) {
   if (d.done) {
     next.phase = "tournament";
     next.tournament = createTournament(players || prev.players, settings || prev.settings);
+    // token estável por instância de torneio — chave para gravar matches/champion no Supabase
+    next.tournamentToken = "t_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   }
   return next;
 }
@@ -493,6 +498,53 @@ export default function App() {
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, gstate?.hostId, myId]);
+
+  // ---------- A4: persistência de partidas/torneio (só o anfitrião autenticado) ----------
+  // Garante rooms.host_id = meu uid (as policies de matches/tournaments dependem disso).
+  useEffect(() => {
+    if (!hasSupabase || !auth || !room || room.isLocal) return;
+    if (gstate?.hostId !== myId || !gstate?.code) return;
+    history.ensureRoomHost(gstate.code, myId);
+  }, [room, auth, gstate?.hostId, gstate?.code, myId]);
+
+  // Grava cada partida recém-concluída uma única vez (dedupe por id → seguro em StrictMode
+  // e cobre todos os caminhos: ao vivo, simular-próxima, simular-rodada/tudo).
+  const recordedRef = useRef(new Set());
+  useEffect(() => {
+    if (!hasSupabase || !auth || !room || room.isLocal) return;
+    if (gstate?.hostId !== myId) return;
+    const t = gstate?.tournament;
+    const token = gstate?.tournamentToken;
+    if (!t || !token) return;
+    const name = t.format === "league" ? "Liga FutDraft" : t.format === "cup" ? "Copa FutDraft" : "Mata-mata FutDraft";
+    const sideOf = (id) => {
+      const p = gstate.players.find((x) => x.id === id);
+      return { userId: isUuid(id) ? id : null, squad: p?.squadId || null };
+    };
+    for (const m of allMatches(t)) {
+      if (!m.played || !m.result || m.result.bye || m.isBye) continue;
+      const key = token + ":" + m.id;
+      if (recordedRef.current.has(key)) continue;
+      recordedRef.current.add(key);
+      history.recordMatch({
+        token, roomId: gstate.code, name, format: t.format, round: m.round,
+        home: sideOf(m.homeId), away: sideOf(m.awayId), result: m.result,
+      });
+    }
+    if (tournamentFinished(t) && t.champion) {
+      const ckey = "champ:" + token;
+      if (!recordedRef.current.has(ckey)) {
+        recordedRef.current.add(ckey);
+        const champ = gstate.players.find((x) => x.id === t.champion);
+        history.setChampion({
+          token,
+          championUserId: isUuid(t.champion) ? t.champion : null,
+          championSquad: champ?.squadId || null,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstate?.tournament, gstate?.tournamentToken, gstate?.hostId, auth, room, myId]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
