@@ -63,6 +63,8 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
           isHost={isHost}
           isLocal={isLocal}
           room={room}
+          tournament={t}
+          players={players}
           onFinish={(result) => actions.finishLiveMatch(m.id, result)}
           onLeave={onLeave}
         />

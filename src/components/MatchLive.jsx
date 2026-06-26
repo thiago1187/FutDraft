@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createLiveMatch } from "../engine/liveMatch.js";
 import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
-import { escudoImg } from "./bits.jsx";
+import { leagueTable, applyMatchResult } from "../engine/tournament.js";
+import { escudoImg, Avatar } from "./bits.jsx";
 import Pitch2D from "./Pitch2D.jsx";
 
 const SPEEDS = [1, 2, 4];
@@ -35,7 +36,7 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens }) {
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
@@ -44,6 +45,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
   const penResultRef = useRef(null);
+  const endResultRef = useRef(null); // resultado retido p/ a tela de fim de partida (liga)
   const speedRef = useRef(1);
 
   const homeColor = homeMgr?.color || "#E94E27";
@@ -67,6 +69,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const [ctrlSide, setCtrlSide] = useState(controllable[0] || "home");
   const [pens, setPens] = useState(null);
   const [tacticsOpen, setTacticsOpen] = useState(false);
+  const [ended, setEnded] = useState(false); // liga: tela de fim com a classificação
 
   const canControl = (side) => controllable.includes(side);
   const mySide = controllable.includes(ctrlSide) ? ctrlSide : (controllable[0] || "home");
@@ -105,8 +108,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       if (e?.needsPens?.() && !pensStartedRef.current) {
         pensStartedRef.current = true;
         startPens(e);
-      } else if (e?.isOver?.() && !finishedRef.current) {
-        finalize(e.result());
+      } else if (e?.isOver?.() && !finishedRef.current && !endResultRef.current) {
+        const res = e.result();
+        // Mata-mata avança direto; pontos corridos para na tela de fim com a tabela.
+        if (match.knockout) finalize(res);
+        else { endResultRef.current = res; setEnded(true); }
       }
       setTick((n) => (n + 1) % 1000000);
       rafRef.current = requestAnimationFrame(loop);
@@ -278,6 +284,16 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const iAmManager = controllable.length > 0;
   const stats = view.stats || { possession: [1, 1], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] };
 
+  // Tela de fim de partida (pontos corridos): classificação JÁ com o resultado aplicado.
+  const endStandings = (() => {
+    if (!ended || !endResultRef.current || !tournament || !players) return null;
+    const isLeague = tournament.format === "league" || (tournament.fixtures && !tournament.rounds);
+    if (!isLeague) return null;
+    const tc = structuredClone(tournament);
+    applyMatchResult(tc, match.id, endResultRef.current, players);
+    return leagueTable(tc, players);
+  })();
+
   // Gols por jogador (controller deriva dos eventos; espectador recebe pronto) e capitão (maior OVR do XI).
   const goalsBy = view.goalsBy || (() => {
     const m = {};
@@ -417,6 +433,56 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           onContinue={() => penResultRef.current && finalize(penResultRef.current)}
           onLeave={onLeave}
         />
+      )}
+
+      {/* FIM DE PARTIDA (pontos corridos) — resultado + classificação atualizada */}
+      {ended && controller && (
+        <div className="ml-endmatch">
+          <div className="ml-end-card">
+            <span className="pen-eyebrow">Fim de jogo</span>
+            <div className="ml-end-score">
+              <TeamBadge mgr={homeMgr} name={homeName} color={homeColor} />
+              <span className="ml-end-team">{homeName}</span>
+              <b className="ml-end-num">{view.score[0]}</b>
+              <i>—</i>
+              <b className="ml-end-num">{view.score[1]}</b>
+              <span className="ml-end-team r">{awayName}</span>
+              <TeamBadge mgr={awayMgr} name={awayName} color={awayColor} />
+            </div>
+
+            {endStandings && (
+              <>
+                <div className="ml-end-tablelabel">Classificação</div>
+                <div className="table ml-end-table">
+                  <div className="table-head">
+                    <span className="th-pos">#</span><span className="th-team">Time</span>
+                    <span>P</span><span>J</span><span>V</span><span>E</span><span>D</span><span>SG</span>
+                  </div>
+                  {endStandings.map((row, i) => {
+                    const pl = players.find((p) => p.id === row.id);
+                    const justPlayed = row.id === homeMgr?.id || row.id === awayMgr?.id;
+                    return (
+                      <div key={row.id} className={`table-row ${justPlayed ? "leader" : ""}`}>
+                        <span className="th-pos">{i + 1}</span>
+                        <span className="th-team">
+                          <Avatar emoji={pl?.emoji} color={pl?.color} size={20} />
+                          <span className="tr-name">{pl?.teamName || "—"}</span>
+                        </span>
+                        <span className="tr-pts">{row.Pts}</span>
+                        <span>{row.P}</span><span>{row.W}</span><span>{row.D}</span><span>{row.L}</span>
+                        <span>{row.GD > 0 ? "+" + row.GD : row.GD}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <button className="btn btn-primary btn-block btn-lg" onClick={() => finalize(endResultRef.current)}>
+              Continuar →
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
