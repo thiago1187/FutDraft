@@ -13,6 +13,8 @@ const PEN_TIMER_MS = 6000; // disputa de pênaltis: 6s para escolher; depois vai
 const IG_PEN_TIMER_MS = 4000; // pênalti EM JOGO: 4s para escolher canto/mergulho
 const rndDir = () => PEN_DIRS[Math.floor(Math.random() * PEN_DIRS.length)];
 const otherSide = (s) => (s === "home" ? "away" : "home");
+const POS_ORDER = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
+const shortPos = (pos) => (pos === "GK" ? "GOL" : pos === "DEF" ? "DEF" : pos === "MID" ? "MEI" : "ATA");
 
 function badge(name = "") {
   const w = name.replace(/\s+FC$/i, "").trim().split(/\s+/);
@@ -405,8 +407,38 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       {view && !view.started && !finalResult && (
         <div className="ml-pregame">
           <div className="ml-pregame-card">
-            <span className="pen-eyebrow">Antes de começar</span>
+            <span className="pen-eyebrow">Antes de começar · pré-análise</span>
             <div className="ml-pregame-title">{homeName} <i>vs</i> {awayName}</div>
+
+            {/* PRÉ-ANÁLISE — força de cada time (ataque/defesa/geral) + elenco */}
+            <div className="ml-pre-analysis">
+              {["home", "away"].map((s) => {
+                const sq = (s === "home" ? home : away).squad || [];
+                const r = teamRatings(sq);
+                const col = s === "home" ? homeColor : awayColor;
+                const xi = [...sq].sort((a, b) => (POS_ORDER[a.pos] - POS_ORDER[b.pos]) || b.ovr - a.ovr);
+                return (
+                  <div key={s} className="ml-pre-team">
+                    <div className="ml-pre-name" style={{ color: col }}>{s === "home" ? homeName : awayName}</div>
+                    <div className="ml-pre-ovrs">
+                      <div className="ml-pre-ovr big" style={{ "--c": col }}><b>{Math.round(r.overall)}</b><span>Geral</span></div>
+                      <div className="ml-pre-ovr"><b>{Math.round(r.attack)}</b><span>Ataque</span></div>
+                      <div className="ml-pre-ovr"><b>{Math.round(r.defense)}</b><span>Defesa</span></div>
+                    </div>
+                    <div className="ml-pre-xi">
+                      {xi.map((p) => (
+                        <div key={p.id} className="ml-pre-pl">
+                          <span className="ml-pre-pos">{shortPos(p.pos)}</span>
+                          <span className="ml-pre-plname">{lastName(p.name)}</span>
+                          <span className="ml-pre-plovr">{p.ovr}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="ml-pregame-ready">
               {["home", "away"].filter((s) => !sideIsBot(s)).map((s) => (
                 <div key={s} className={`ml-pregame-row ${view.preReady?.[s] ? "ok" : ""}`}>
