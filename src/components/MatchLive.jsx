@@ -92,6 +92,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     });
     engineRef.current = eng;
     if (forcePens) {
+      eng.beginMatch();
       eng.state.phase = "PEN";
       eng.state.minute = 90;
       pensStartedRef.current = true;
@@ -126,7 +127,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; off && off(); };
+    // anti-AFK: se alguém não confirmar "Pronto" em 30s, começa mesmo assim.
+    const afk = setTimeout(() => { engineRef.current?.beginMatch?.(); setTick((n) => n + 1); }, 30000);
+    return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; clearTimeout(afk); off && off(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -237,6 +240,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     if (!e) return;
     if (cmd.kind === "tactic") e.setTactic(cmd.side, cmd.patch);
     if (cmd.kind === "ready") e.setReady(cmd.side);
+    if (cmd.kind === "matchready") e.setPreReady(cmd.side);
     if (cmd.kind === "penpick") penApplyPick(cmd.role, cmd.value, cmd.round);
     if (cmd.kind === "igpenpick") igPenApplyPick(cmd.role, cmd.value, cmd.id);
     if (cmd.kind === "sub") {
@@ -250,6 +254,16 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     for (const s of sides) {
       if (controller) engineRef.current?.setReady(s);
       else room?.broadcast?.("cmd", { kind: "ready", side: s });
+    }
+    setTick((n) => n + 1);
+  }
+  // READY-GATE de início: cada técnico confirma "Pronto"; a partida só começa quando
+  // os dois confirmam (CPU já entra pronta). O anfitrião NÃO força o início.
+  function matchReadyUp() {
+    const sides = isLocal ? humanSides : controllable;
+    for (const s of sides) {
+      if (controller) engineRef.current?.setPreReady(s);
+      else room?.broadcast?.("cmd", { kind: "matchready", side: s });
     }
     setTick((n) => n + 1);
   }
@@ -382,6 +396,31 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
 
   return (
     <div className={"matchlive-full" + (themeColor ? " themed" : "")} style={themeColor ? { "--team": themeColor } : undefined}>
+      {/* READY-GATE — a partida só começa quando os técnicos confirmam (host não força) */}
+      {view && !view.started && !finalResult && (
+        <div className="ml-pregame">
+          <div className="ml-pregame-card">
+            <span className="pen-eyebrow">Antes de começar</span>
+            <div className="ml-pregame-title">{homeName} <i>vs</i> {awayName}</div>
+            <div className="ml-pregame-ready">
+              {["home", "away"].filter((s) => !sideIsBot(s)).map((s) => (
+                <div key={s} className={`ml-pregame-row ${view.preReady?.[s] ? "ok" : ""}`}>
+                  <span className="ml-pregame-name">{s === "home" ? homeName : awayName}</span>
+                  <span className="ml-pregame-st">{view.preReady?.[s] ? "Pronto ✓" : "aguardando…"}</span>
+                </div>
+              ))}
+            </div>
+            {controllable.some((s) => !view.preReady?.[s]) ? (
+              <button className="btn btn-primary btn-block btn-lg" onClick={matchReadyUp}>Estou pronto →</button>
+            ) : controllable.length > 0 ? (
+              <div className="waiting">✓ Pronto! Aguardando o adversário…</div>
+            ) : (
+              <div className="waiting">Aguardando os técnicos confirmarem…</div>
+            )}
+            {onLeave && <button className="btn btn-ghost btn-block" onClick={onLeave}>Sair da partida</button>}
+          </div>
+        </div>
+      )}
       {/* PÓS-JOGO — súmula completa + corrida de xG + história */}
       {finalResult?.summary && (
         <PostMatch
@@ -768,6 +807,7 @@ function compact(s) {
     minute: s.minute, phase: s.phase, score: s.score, ball: { x: Math.round(s.ball.x * 10) / 10, y: Math.round(s.ball.y * 10) / 10 },
     tokens: { home: s.tokens.home.map(tk), away: s.tokens.away.map(tk) },
     carrier: s.carrier, cinematic: s.cinematic, men: s.men, ready: s.ready,
+    started: s.started, preReady: s.preReady,
     penaltyPending: s.penaltyPending ? {
       att: s.penaltyPending.att, def: s.penaltyPending.def, taker: s.penaltyPending.taker, id: s.penaltyPending.id,
       picks: s.penaltyPending.picks, deadline: s.penaltyPending.deadline,

@@ -84,6 +84,7 @@ function runLive(oH, oA, tacH) {
   const eng = createLiveMatch(liveTeam(oH), liveTeam(oA), {
     knockout: false, homeColor: "#f00", awayColor: "#00f", cpu: { home: false, away: false },
   });
+  eng.beginMatch(); // pula o ready-gate (sem UI no harness)
   if (tacH) eng.setTactic("home", tacH);
   const DIRS = ["cantoE", "meio", "cantoD"], rd = () => DIRS[Math.floor(Math.random() * 3)];
   let g = 0, lastPen = 0, pens = 0;

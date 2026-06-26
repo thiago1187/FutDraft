@@ -73,6 +73,8 @@ export function createLiveMatch(home, away, opts = {}) {
     penaltyPending: null, // pênalti EM JOGO aguardando cobrança (resolvido pela UI); { att, def, taker, picks, deadline, animating, lastKick, id }
     stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0] },
     ready: { home: !!cpu.home, away: !!cpu.away },
+    started: false, // só começa quando todos os técnicos confirmarem (ready-gate)
+    preReady: { home: !!cpu.home, away: !!cpu.away }, // CPU já entra pronta
     momentum: 0,
     xg: [0, 0],
     xgTimeline: [{ m: 0, h: 0, a: 0 }], // corrida de xG (em escada a cada finalização)
@@ -548,6 +550,9 @@ export function createLiveMatch(home, away, opts = {}) {
     const before = state.events.length;
     const real = Math.min(dtMs, 60);
 
+    // ready-gate: o jogo não anda até todos os técnicos confirmarem "Pronto".
+    if (!state.started) return [];
+
     // cinemática em andamento → congela o relógio do jogo
     if (state.cinematic) {
       state.cinematic.holdMs -= real * Math.min(speed, 2);
@@ -729,6 +734,10 @@ export function createLiveMatch(home, away, opts = {}) {
     setPaused(v) { state.paused = v; },
     togglePause() { state.paused = !state.paused; return state.paused; },
     setReady(side) { state.ready[side] = true; },
+    // ready-gate de início: confirma um lado; quando os dois estão prontos, começa.
+    setPreReady(side) { state.preReady[side] = true; if (state.preReady.home && state.preReady.away) state.started = true; },
+    beginMatch() { state.preReady.home = true; state.preReady.away = true; state.started = true; },
+    isStarted: () => state.started,
     isHalftime: () => state.phase === "INT",
     substitute(side, outId, inPlayer) {
       if (state.subsLeft[side] <= 0 || !inPlayer) return false;
