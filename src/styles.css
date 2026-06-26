@@ -1790,6 +1790,156 @@ body {
 .gfix-t i { font-style: normal; font-family: var(--head); font-weight: 700; font-size: 10px; color: var(--muted2); }
 .gfix-s { font-family: var(--display); font-size: 12px; color: var(--ink); min-width: 26px; text-align: center; }
 
+/* ---------- CHAVEAMENTO estilo Copa do Mundo (duas metades → final central) ---------- */
+.bracket-wc { justify-content: center; align-items: stretch; gap: 18px; }
+.bracket-wc .bracket-col { min-width: 138px; }
+/* o centro herda o space-around das outras colunas → a final fica na MESMA altura das semis */
+.bracket-wc .bracket-center { align-items: center; min-width: 172px; }
+.bracket-round.center { color: var(--gold); font-size: 12px; text-align: center; }
+.bracket-center .match-card.big { width: 100%; max-width: 210px; border-color: var(--gold); box-shadow: 0 0 0 2px rgba(199, 162, 74, 0.28); }
+.mc-team.champ .mc-name { color: var(--gold); }
+.mc-champ-mark { margin-left: 5px; }
+/* metade direita espelhada: escudo à direita, nome à esquerda */
+.match-card.mirror .mc-team { flex-direction: row-reverse; }
+.match-card.mirror .mc-name { text-align: right; }
+.match-card.mirror .mc-bye-label { text-align: right; }
+.match-card.mirror .mc-badge { right: auto; left: 8px; }
+
+/* ===========================================================
+   COPA EM ANDAMENTO — redesign editorial (handoff chaveamento)
+   =========================================================== */
+@keyframes tcuppulse { 0% { box-shadow: 0 0 0 0 rgba(232,84,63,.55); } 70% { box-shadow: 0 0 0 6px rgba(232,84,63,0); } 100% { box-shadow: 0 0 0 0 rgba(232,84,63,0); } }
+
+.screen.tcup { max-width: 1280px; text-align: left; }
+.tcup { --arch: "Archivo", system-ui, sans-serif; --rd: #c0392b; --gd: #a8843a; --mut: #9c9580; --mut2: #7a745f; }
+
+/* eyebrow */
+.tcup-eyebrow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.tcup-brand { font-family: var(--head); font-weight: 600; font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: var(--gd); }
+.tcup-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--head); font-weight: 500; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mut2); }
+.tcup-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #e8543f; animation: tcuppulse 1.4s ease-out infinite; }
+
+/* headline */
+.tcup-headline { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
+.tcup-kicker { font-family: var(--head); font-weight: 600; font-size: 13px; letter-spacing: 4px; text-transform: uppercase; color: var(--rd); margin-bottom: 3px; }
+.tcup-title { font-family: var(--display); font-weight: 400; font-size: 66px; line-height: 0.9; letter-spacing: 0.5px; margin: 0; text-transform: uppercase; color: var(--ink); }
+.tcup-stats { display: flex; gap: 26px; padding-bottom: 5px; flex: 0 0 auto; }
+.tcup-stat { text-align: right; }
+.tcup-stat b { display: block; font-family: var(--display); font-size: 32px; line-height: 1; color: var(--ink); }
+.tcup-stat b.red { color: var(--rd); }
+.tcup-stat span { font-family: var(--head); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--mut2); }
+.tcup-stat-div { width: 1px; background: #d6cdb2; }
+
+/* rail de fases */
+.tcup-rail { display: flex; align-items: center; margin: 24px 0 36px; }
+.trail-step { display: flex; align-items: center; flex: 1 1 0; }
+.trail-cell { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.trail-node { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--head); font-weight: 600; font-size: 12px; flex: 0 0 auto; }
+.trail-node.done { background: var(--ink); color: #f3ecd8; border: 1.5px solid var(--ink); }
+.trail-node.now { background: var(--rd); color: #f3ecd8; border: 1.5px solid var(--rd); }
+.trail-node.todo { background: var(--cream); color: #b7af98; border: 1.5px solid #c7bd9f; }
+.trail-label { font-family: var(--head); font-weight: 600; font-size: 13px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--mut); }
+.trail-label.done { color: var(--ink); }
+.trail-label.now { color: var(--rd); }
+.trail-sub { font-family: var(--head); font-weight: 400; font-size: 10px; letter-spacing: 0.6px; color: var(--mut); }
+.trail-line { flex: 1 1 auto; height: 2px; margin: 0 13px; background: #cfc4a2; min-width: 18px; }
+.trail-line.done { background: var(--ink); }
+
+/* barra próximo jogo */
+.tcup-nextbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; background: var(--ink); border-radius: 14px; padding: 12px 18px; margin-bottom: 30px; }
+.tnb-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tnb-eyebrow { font-family: var(--head); font-weight: 600; font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--gold); }
+.tnb-teams { display: inline-flex; align-items: center; gap: 8px; font-family: var(--arch); font-size: 15px; color: var(--paper); }
+.tnb-teams b { font-weight: 700; }
+.tnb-vs { font-style: normal; color: var(--mut); font-family: var(--display); font-size: 13px; }
+.tnb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tnb-actions .btn { padding: 10px 14px; font-size: 13px; }
+.btn.btn-dark { background: rgba(255,255,255,.1); color: var(--paper); border: 1px solid rgba(255,255,255,.16); border-radius: 9px; font-family: var(--head); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
+.btn.btn-dark:hover { background: rgba(255,255,255,.18); }
+.tnb-note { font-family: var(--body); font-style: italic; font-size: 13px; color: var(--mut); }
+
+/* seções */
+.tcup-section { margin-bottom: 48px; }
+.tcup-sechead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.tcup-h2 { font-family: var(--display); font-weight: 400; font-size: 28px; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink); }
+.tcup-sectag { font-family: var(--head); font-weight: 500; font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mut); }
+.tcup-rule { flex: 1 1 auto; height: 1px; background: #d6cdb2; }
+.tcup-legend { display: inline-flex; align-items: center; gap: 6px; font-family: var(--head); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--mut2); }
+.tcup-legend-sq { width: 9px; height: 9px; border-radius: 2px; background: var(--gold); }
+.tcup-hint { font-family: var(--body); font-style: italic; color: var(--mut); margin: -28px 0 40px; }
+
+/* grupos */
+.tcup-groups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.gcard { background: var(--paper); border: 1px solid #e0d6bc; border-radius: 12px; overflow: hidden; }
+.gcard.active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.gcard-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 13px; background: var(--ink); }
+.gcard-title { font-family: var(--display); font-size: 15px; letter-spacing: 0.5px; color: #f3ecd8; }
+.gcard-pts { font-family: var(--head); font-size: 9.5px; letter-spacing: 1.4px; color: var(--gd); }
+.gcard-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 0; border-bottom: 1px solid #efe8d5; border-left: 3px solid transparent; }
+.gcard-row:last-child { border-bottom: none; }
+.gcard-row.q { border-left-color: var(--gold); }
+.gcard-rank { width: 18px; text-align: center; font-family: var(--head); font-weight: 600; font-size: 11px; color: #a7a089; flex: 0 0 auto; }
+.gcard-row.q .gcard-rank { color: var(--ink); }
+.gcard-crest { flex: 0 0 auto; display: flex; }
+.gcard-name { flex: 1 1 auto; min-width: 0; font-family: var(--arch); font-size: 12.5px; font-weight: 400; color: #8a8475; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gcard-row.q .gcard-name { color: var(--ink); font-weight: 600; }
+.gcard-sg { font-family: var(--head); font-size: 10px; color: #a7a089; flex: 0 0 auto; }
+.gcard-ptsv { width: 24px; text-align: right; font-family: var(--display); font-size: 14px; color: #a7a089; flex: 0 0 auto; }
+.gcard-row.q .gcard-ptsv { color: var(--ink); }
+
+/* bracket (Copa do Mundo) */
+.bwc { position: relative; display: flex; gap: 22px; min-height: 460px; overflow-x: auto; padding-bottom: 6px; }
+.bwc-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: visible; }
+.bwc-col { display: flex; flex-direction: column; width: 168px; flex: 0 0 auto; z-index: 1; }
+.bwc-col.bwc-center { width: 196px; }
+.bwc-cap { text-align: center; font-family: var(--head); font-weight: 600; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--mut); margin-bottom: 10px; }
+.bwc-cap.final { color: var(--gd); }
+.bwc-cells { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: space-around; }
+.bwc-cell { width: 100%; }
+
+/* match card do bracket */
+.mwc { background: var(--paper); border: 1px solid #dac98b; border-radius: 11px; box-shadow: 0 2px 6px rgba(26,24,20,.06); overflow: hidden; font-family: var(--arch); }
+.mwc-row { display: flex; align-items: center; gap: 9px; padding: 8px 11px; min-width: 0; }
+.mwc-row .avatar { flex: 0 0 auto; }
+.mwc-name { flex: 1 1 auto; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 600; }
+.mwc-score { flex: 0 0 auto; font-family: var(--display); font-size: 16px; line-height: 1; color: var(--ink); }
+.mwc-ovr { flex: 0 0 auto; font-family: var(--head); font-weight: 700; font-size: 11px; color: var(--mut); }
+.mwc-sep { height: 1px; background: #eee7d4; }
+.mwc-row.lose .mwc-name, .mwc-row.lose .mwc-score { color: #9c9580; font-weight: 500; }
+.mwc-row.win .mwc-name, .mwc-row.win .mwc-score { color: var(--ink); font-weight: 700; }
+.mwc-pens { font-family: var(--head); font-weight: 600; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mut2); padding: 0 11px 6px; }
+.mwc-pens.gold { color: var(--gd); }
+/* live */
+.mwc.live { background: #17150f; border-color: #17150f; box-shadow: 0 6px 18px rgba(23,21,15,.28); }
+.mwc.live .mwc-name { color: #f7f2e4; }
+.mwc.live .mwc-ovr { color: #cfc7b2; }
+.mwc-livehead { padding: 6px 11px 3px; }
+.mwc-agora { display: inline-flex; align-items: center; gap: 5px; font-family: var(--head); font-weight: 600; font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: #f3d98b; }
+.mwc-livedot { width: 6px; height: 6px; border-radius: 50%; background: #e8543f; animation: tcuppulse 1.4s ease-out infinite; }
+/* pending */
+.mwc.pending { background: rgba(251,248,239,.5); border: 1.5px dashed #d2c7a4; box-shadow: none; }
+.mwc-crest { width: 22px; height: 22px; border-radius: 50%; border: 1.5px dashed #cfc4a2; flex: 0 0 auto; }
+.mwc-crest.big { width: 26px; height: 26px; }
+.mwc-name.ph { font-style: italic; font-weight: 400; color: #9c9580; }
+/* mirror (lado direito) */
+.mwc.mirror .mwc-row { flex-direction: row-reverse; }
+.mwc.mirror .mwc-name { text-align: right; }
+/* final */
+.mwc.final { border: 2px solid var(--gold); border-radius: 13px; box-shadow: 0 8px 22px rgba(201,162,58,.22); }
+.mwc.final .mwc-name { font-size: 14px; }
+.mwc-finalist { flex: 0 0 auto; font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--green); }
+.mwc-champ { color: var(--gold); }
+/* league reuse */
+.mwc.lg { margin-bottom: 7px; }
+.mwc.lg.live { background: #17150f; }
+.mwc.lg.live .mwc-name { color: #f7f2e4; }
+
+@media (max-width: 900px) {
+  .tcup-title { font-size: 44px; }
+  .tcup-groups { grid-template-columns: repeat(2, 1fr); }
+  .tcup-stats { gap: 16px; }
+}
+
 /* ===========================================================
    CAMPEÃO — pódio + artilheiros lado a lado
    =========================================================== */

@@ -172,7 +172,7 @@ export default function App() {
         code,
         hostId: myId,
         phase: "lobby",
-        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6, cupSize: 8 },
+        settings: { format: "knockout", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6, cupSize: 8 },
         players: [host],
         draft: null,
         tournament: null,
