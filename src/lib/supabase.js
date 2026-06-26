@@ -15,6 +15,8 @@ export const hasSupabase = Boolean(url && key);
 export const supabase = hasSupabase
   ? createClient(url, key, {
       realtime: { params: { eventsPerSecond: 10 } },
-      auth: { persistSession: false },
+      // Sessão persistida: o login (usuário+senha) precisa sobreviver a recarregar a
+      // página e renovar o token sozinho. É a base de toda a migração para o Supabase.
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
     })
   : null;

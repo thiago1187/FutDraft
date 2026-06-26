@@ -26,6 +26,8 @@ import Draft7a0 from "./components/Draft7a0.jsx";
 import Tournament from "./components/Tournament.jsx";
 import Champion from "./components/Champion.jsx";
 import DevHarness from "./components/DevHarness.jsx";
+import Auth from "./components/Auth.jsx";
+import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -106,7 +108,13 @@ function makeSquadBot(players = []) {
 }
 
 export default function App() {
-  const myId = useRef(clientId()).current;
+  // Identidade: quando logado, é o auth.uid() (Supabase Auth); offline/convidado cai no
+  // id anônimo do aparelho. `auth === undefined` = ainda verificando a sessão salva.
+  const guestIdRef = useRef(clientId());
+  const [auth, setAuth] = useState(hasSupabase ? undefined : null);
+  const [guest, setGuest] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
   const [gstate, setGstate] = useState(null);
   const [online, setOnline] = useState([]);
@@ -129,6 +137,24 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
+  // Sessão de login (Supabase Auth): lê a salva e escuta login/logout/refresh.
+  useEffect(() => {
+    if (!hasSupabase) { setAuth(null); return; }
+    let alive = true;
+    getSession().then((s) => alive && setAuth(s)).catch(() => alive && setAuth(null));
+    const off = onAuthChange((s) => setAuth(s));
+    return () => { alive = false; off && off(); };
+  }, []);
+
+  // Carrega o meu profile (nome do time, escudo, cor) quando logo.
+  useEffect(() => {
+    const uid = auth?.user?.id;
+    if (!uid) { setProfile(null); return; }
+    let alive = true;
+    getProfile(uid).then((p) => alive && setProfile(p)).catch(() => {});
+    return () => { alive = false; };
+  }, [auth]);
+
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
@@ -145,6 +171,18 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate, myId, room]);
+
+  // Meu jogador na sala. Se estou logado, uso os dados do profile (time/escudo/cor);
+  // senão, gero como antes (convidado).
+  function makeMe(players, nameFallback) {
+    const me = makePlayer(myId, profile?.display_name || nameFallback, players);
+    if (profile) {
+      if (profile.team_name) me.teamName = profile.team_name;
+      if (profile.emoji) me.emoji = profile.emoji;
+      if (profile.color) me.color = profile.color;
+    }
+    return me;
+  }
 
   function attach(r, name) {
     setRoom(r);
@@ -166,7 +204,7 @@ export default function App() {
         code = genCode();
         tries++;
       }
-      const host = makePlayer(myId, name, []);
+      const host = makeMe([], name);
       const initialState = {
         v: 1,
         code,
@@ -202,7 +240,7 @@ export default function App() {
       await r.setState((prev) => {
         if (!prev) return prev;
         if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makePlayer(myId, name, prev.players)] };
+        return { ...prev, players: [...prev.players, makeMe(prev.players, name)] };
       });
       attach(r, name);
     } catch (e) {
@@ -226,7 +264,7 @@ export default function App() {
       await r.setState((prev) => {
         if (!prev) return prev;
         if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makePlayer(myId, s.name, prev.players)] };
+        return { ...prev, players: [...prev.players, makeMe(prev.players, s.name)] };
       });
       attach(r, s.name);
     } catch (e) {
@@ -246,6 +284,13 @@ export default function App() {
     setGstate(null);
     setOnline([]);
     setScreen("home");
+  }
+
+  async function onSignOut() {
+    try { await leave(); } catch (_) {}
+    try { await signOut(); } catch (_) {}
+    setGuest(false);
+    setProfile(null);
   }
 
   // ---------- ações dentro da sala ----------
@@ -450,6 +495,28 @@ export default function App() {
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
 
+  // Verificando a sessão salva (evita piscar a tela de login).
+  if (auth === undefined) {
+    return (
+      <div className="app">
+        <div className="screen center-screen">
+          <Logo />
+          <p className="muted">Carregando…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Online sem login (e não convidado) → tela de conta.
+  if (hasSupabase && !auth && !guest) {
+    return (
+      <div className="app app-full">
+        <Auth onGuest={() => setGuest(true)} isLocal={!hasSupabase} />
+        <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
+      </div>
+    );
+  }
+
   if (screen === "home" || !gstate) {
     if (screen === "room" && !gstate) {
       return (
@@ -471,6 +538,8 @@ export default function App() {
           connecting={connecting}
           error={error}
           isLocal={!hasSupabase}
+          account={auth ? profile : null}
+          onSignOut={auth ? onSignOut : null}
         />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>

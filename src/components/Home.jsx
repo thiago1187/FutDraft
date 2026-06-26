@@ -7,8 +7,8 @@ const STEPS = [
   { n: "03", t: "Simule a copa", d: "Partidas 2D, pênaltis e troféu" },
 ];
 
-export default function Home({ onCreate, onJoin, onRejoin, session, connecting, error, isLocal }) {
-  const [name, setName] = useState(session?.name || "");
+export default function Home({ onCreate, onJoin, onRejoin, session, connecting, error, isLocal, account, onSignOut }) {
+  const [name, setName] = useState(account?.display_name || session?.name || "");
   const [code, setCode] = useState("");
 
   const canCreate = name.trim().length >= 2;
@@ -27,7 +27,11 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
       <div className="split-left home-left">
         <div className="home-topbar">
           <span className="home-kicker">FutDraft ⚽ · Copa entre amigos</span>
-          <span className="home-badge">Sem cadastro</span>
+          {account ? (
+            <span className="home-badge">@{account.username}</span>
+          ) : (
+            <span className="home-badge">{isLocal ? "Modo local" : "Convidado"}</span>
+          )}
         </div>
 
         <Logo size="lg" />
@@ -50,6 +54,15 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
 
       {/* DIREITA — ações */}
       <div className="split-right home-right">
+        {account && (
+          <div className="home-account">
+            <span className="home-account-who">Logado como <strong>@{account.username}</strong></span>
+            {onSignOut && (
+              <button className="home-account-out" onClick={onSignOut}>Sair</button>
+            )}
+          </div>
+        )}
+
         {isLocal && (
           <div className="banner banner-local">
             <strong>Modo local.</strong> Configure o Supabase para jogar entre aparelhos (README).
