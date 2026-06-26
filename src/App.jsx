@@ -20,7 +20,7 @@ import {
   tournamentFinished,
   allMatches,
 } from "./engine/tournament.js";
-import { TEAM_EMOJIS, freeColor, Logo } from "./components/bits.jsx";
+import { TEAM_EMOJIS, TEAM_COLORS, freeColor, Logo } from "./components/bits.jsx";
 import Home from "./components/Home.jsx";
 import Lobby from "./components/Lobby.jsx";
 import Draft7a0 from "./components/Draft7a0.jsx";
@@ -179,8 +179,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate, myId, room]);
 
-  // Meu jogador na sala. Se estou logado, uso os dados do profile (time/escudo/cor);
-  // senão, gero como antes (convidado).
+  // Meu jogador na sala (MODO LOCAL/blob). No online, a linha em room_players é montada
+  // pelo net.js a partir do profileForRow abaixo.
   function makeMe(players, nameFallback) {
     const me = makePlayer(myId, profile?.display_name || nameFallback, players);
     if (profile) {
@@ -190,6 +190,16 @@ export default function App() {
     }
     return me;
   }
+
+  // Dados do meu room_players no online (vêm do profile; net.js completa defaults).
+  function profileForRow(nameFallback) {
+    return {
+      team_name: profile?.team_name || `${(nameFallback || "Meu").split(" ")[0]} FC`,
+      emoji: profile?.emoji || TEAM_EMOJIS[0],
+      color: profile?.color || TEAM_COLORS[0],
+    };
+  }
+  const DEFAULT_SETTINGS = { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6, cupSize: 8 };
 
   function attach(r, name) {
     setRoom(r);
@@ -211,21 +221,24 @@ export default function App() {
         code = genCode();
         tries++;
       }
-      const host = makeMe([], name);
-      const initialState = {
-        v: 1,
-        code,
-        hostId: myId,
-        phase: "lobby",
-        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6, cupSize: 8 },
-        players: [host],
-        draft: null,
-        tournament: null,
-        presenting: null,
-      };
+      let initialState;
+      if (hasSupabase) {
+        // online relacional: net.js cria rooms + minha linha em room_players
+        initialState = { phase: "lobby", settings: DEFAULT_SETTINGS };
+      } else {
+        // local/blob
+        const host = makeMe([], name);
+        initialState = {
+          v: 1, code, hostId: myId, phase: "lobby",
+          settings: DEFAULT_SETTINGS, players: [host],
+          draft: null, tournament: null, presenting: null,
+        };
+      }
       const r = await openRoom(code, {
         create: true,
         initialState,
+        myUid: myId,
+        profile: profileForRow(name),
         presenceMeta: { cid: myId, name },
       });
       attach(r, name);
@@ -242,13 +255,18 @@ export default function App() {
     try {
       const r = await openRoom(code, {
         create: false,
+        myUid: myId,
+        profile: profileForRow(name),
         presenceMeta: { cid: myId, name },
       });
-      await r.setState((prev) => {
-        if (!prev) return prev;
-        if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makeMe(prev.players, name)] };
-      });
+      // No online, net.js já inseriu minha linha em room_players. No local, adiciono ao blob.
+      if (r.isLocal) {
+        await r.setState((prev) => {
+          if (!prev) return prev;
+          if (prev.players.some((p) => p.id === myId)) return prev;
+          return { ...prev, players: [...prev.players, makeMe(prev.players, name)] };
+        });
+      }
       attach(r, name);
     } catch (e) {
       if (e?.code === "not_found") setError("Sala não encontrada. Confira o código.");
@@ -266,13 +284,17 @@ export default function App() {
     try {
       const r = await openRoom(s.code, {
         create: false,
+        myUid: myId,
+        profile: profileForRow(s.name),
         presenceMeta: { cid: myId, name: s.name },
       });
-      await r.setState((prev) => {
-        if (!prev) return prev;
-        if (prev.players.some((p) => p.id === myId)) return prev;
-        return { ...prev, players: [...prev.players, makeMe(prev.players, s.name)] };
-      });
+      if (r.isLocal) {
+        await r.setState((prev) => {
+          if (!prev) return prev;
+          if (prev.players.some((p) => p.id === myId)) return prev;
+          return { ...prev, players: [...prev.players, makeMe(prev.players, s.name)] };
+        });
+      }
       attach(r, s.name);
     } catch (e) {
       clearSession();
@@ -301,72 +323,131 @@ export default function App() {
   }
 
   // ---------- ações dentro da sala ----------
-  const setState = (updater) => roomRef.current && roomRef.current.setState(updater);
+  // Escrita de estado de MOTOR (draft/torneio/apresentação/fase). Reaproveita os mesmos
+  // redutores: no local escreve o blob inteiro; no online faz diff e grava fase (coluna)
+  // + estado de motor (rooms.state) separadamente. `fn(prev)` devolve o "próximo blob".
+  const applyEngine = (fn) => {
+    const r = roomRef.current;
+    if (!r) return;
+    if (r.isLocal) { r.setState(fn); return; }
+    const prev = r.getState();
+    const next = fn(prev);
+    if (!next || next === prev) return;
+    if (next.phase !== prev.phase) r.setPhase(next.phase);
+    const engine = {};
+    for (const k of ["draft", "tournament", "presenting", "tournamentToken"]) {
+      if (next[k] !== prev[k]) engine[k] = next[k] ?? null;
+    }
+    if (Object.keys(engine).length) r.setEngine(engine);
+  };
 
   const actions = {
     updateMe(patch) {
-      setState((prev) => ({
+      const r = roomRef.current;
+      if (r && !r.isLocal) {
+        const cols = {};
+        if (patch.teamName != null) cols.team_name = patch.teamName;
+        if (patch.emoji != null) cols.emoji = patch.emoji;
+        if (patch.color != null) cols.color = patch.color;
+        r.updateMe(cols);
+        return;
+      }
+      r.setState((prev) => ({
         ...prev,
         players: prev.players.map((p) => (p.id === myId ? { ...p, ...patch } : p)),
       }));
     },
     addLocalPlayer(name) {
-      setState((prev) => {
+      const r = roomRef.current;
+      if (r && !r.isLocal) {
+        const p = makePlayer("x", name, r.getState().players);
+        r.addPlayerRow({ is_bot: false, user_id: null, team_name: name, emoji: p.emoji, color: p.color });
+        return;
+      }
+      r.setState((prev) => {
         const id = "local_" + Math.random().toString(36).slice(2, 8);
         return { ...prev, players: [...prev.players, makePlayer(id, name, prev.players)] };
       });
     },
     addBot() {
-      setState((prev) => {
+      const r = roomRef.current;
+      if (r && !r.isLocal) {
+        const players = r.getState().players;
+        if (players.length >= 16) return;
+        const b = makeSquadBot(players);
+        r.addPlayerRow({ is_bot: true, user_id: null, squad_slug: b.squadId, team_name: b.teamName, emoji: b.emoji, color: b.color });
+        return;
+      }
+      r.setState((prev) => {
         if (prev.players.length >= 16) return prev;
         return { ...prev, players: [...prev.players, makeSquadBot(prev.players)] };
       });
     },
     removePlayer(id) {
-      setState((prev) => ({ ...prev, players: prev.players.filter((p) => p.id !== id) }));
+      const r = roomRef.current;
+      if (r && !r.isLocal) { r.removePlayer(id); return; }
+      r.setState((prev) => ({ ...prev, players: prev.players.filter((p) => p.id !== id) }));
     },
     setSettings(patch) {
-      setState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
+      const r = roomRef.current;
+      if (r && !r.isLocal) { r.setSettings(patch); return; }
+      r.setState((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
     },
     claimHost() {
-      setState((prev) => ({ ...prev, hostId: myId }));
+      const r = roomRef.current;
+      if (r && !r.isLocal) { r.claimHost(myId); return; }
+      r.setState((prev) => ({ ...prev, hostId: myId }));
     },
     leave,
     startDraft() {
-      setState((prev) => {
-        const humanCount = prev.players.filter((p) => !p.isBot).length;
-        if (humanCount < 1) return prev;
-        // Auto-preenche as vagas com seleções-bot aleatórias até o alvo conforme o formato.
-        const fmt = prev.settings.format;
-        const targetN = fmt === "league" ? (prev.settings.leagueSize || 6)
-          : fmt === "cup" ? (prev.settings.cupSize || 8)
-          : (prev.settings.bracketSize || 4);
-        const floor = fmt === "cup" ? 6 : 2; // copa precisa de pelo menos 6 times
-        const target = Math.min(16, Math.max(targetN, prev.players.length, floor));
-        const players = [...prev.players];
+      const r = roomRef.current;
+      const buildDraft = (players, settings) => {
+        const humans = players.filter((p) => !p.isBot);
+        const mgr = {};
+        humans.forEach((p) => { mgr[p.id] = createManagerDraft(DEFAULT_FORMATION, settings.difficulty); });
+        let draft = {
+          taken: [], takenPersons: [], mgr,
+          difficulty: settings.difficulty, turnTimer: settings.turnTimer || 30,
+          pool: settings.squadPool || "all", done: false,
+        };
+        humans.forEach((p) => (draft = ensureRoll(draft, p.id)));
+        return draft;
+      };
+      const targetFor = (settings, count) => {
+        const fmt = settings.format;
+        const targetN = fmt === "league" ? (settings.leagueSize || 6) : fmt === "cup" ? (settings.cupSize || 8) : (settings.bracketSize || 4);
+        const floor = fmt === "cup" ? 6 : 2;
+        return Math.min(16, Math.max(targetN, count, floor));
+      };
+
+      if (r && !r.isLocal) {
+        const prev = r.getState();
+        if (prev.players.filter((p) => !p.isBot).length < 1) return;
+        // adiciona bots até o alvo (linhas em room_players)
+        const local = [...prev.players];
+        const target = targetFor(prev.settings, local.length);
         let guard = 0;
-        while (players.length < target && guard < 32) {
-          players.push(makeSquadBot(players));
+        while (local.length < target && guard < 32) {
+          const b = makeSquadBot(local);
+          r.addPlayerRow({ is_bot: true, user_id: null, squad_slug: b.squadId, team_name: b.teamName, emoji: b.emoji, color: b.color });
+          local.push(b);
           guard++;
         }
-        prev = { ...prev, players };
-        const humans = prev.players.filter((p) => !p.isBot);
-        const mgr = {};
-        humans.forEach((p) => {
-          mgr[p.id] = createManagerDraft(DEFAULT_FORMATION, prev.settings.difficulty);
-        });
-        let draft = {
-          taken: [],
-          takenPersons: [], // player_id (pessoa) já levados — bloqueia o mesmo jogador de outra época
-          mgr,
-          difficulty: prev.settings.difficulty,
-          turnTimer: prev.settings.turnTimer || 30,
-          pool: prev.settings.squadPool || "all",
-          done: false,
-        };
-        // sorteio inicial de cada técnico
-        humans.forEach((p) => (draft = ensureRoll(draft, p.id)));
-        return { ...prev, phase: "draft", draft };
+        // o draft só precisa dos humanos atuais; o torneio (no fim) usa os players da sala
+        const draft = buildDraft(prev.players, prev.settings);
+        r.setEngine({ draft });
+        r.setPhase("draft");
+        return;
+      }
+
+      r.setState((prev) => {
+        if (prev.players.filter((p) => !p.isBot).length < 1) return prev;
+        const target = targetFor(prev.settings, prev.players.length);
+        const players = [...prev.players];
+        let guard = 0;
+        while (players.length < target && guard < 32) { players.push(makeSquadBot(players)); guard++; }
+        const draft = buildDraft(players, prev.settings);
+        return { ...prev, players, phase: "draft", draft };
       });
     },
     // Envia uma intent de draft (aplica direto se for o controlador; senão, broadcast).
@@ -374,13 +455,13 @@ export default function App() {
       const full = { ...intent, managerId: intent.managerId || myId };
       const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
       if (controller) {
-        setState((prev) => applyDraftIntent(prev, full, prev.players, prev.settings));
+        applyEngine((prev) => applyDraftIntent(prev, full, prev.players, prev.settings));
       } else {
         roomRef.current?.broadcast?.("draft", full);
       }
     },
     simulateNext() {
-      setState((prev) => {
+      applyEngine((prev) => {
         const t = structuredClone(prev.tournament);
         const m = nextMatch(t);
         if (!m) return prev;
@@ -391,17 +472,17 @@ export default function App() {
       });
     },
     continueAfterMatch() {
-      setState((prev) => {
+      applyEngine((prev) => {
         const fin = tournamentFinished(prev.tournament);
         return { ...prev, presenting: null, phase: fin ? "finished" : "tournament" };
       });
     },
     // Abre a partida 2D ao vivo (resultado é gerado pelo motor ao terminar).
     startLiveMatch(matchId) {
-      setState((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now() } }));
+      applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now() } }));
     },
     finishLiveMatch(matchId, result) {
-      setState((prev) => {
+      applyEngine((prev) => {
         if (!prev.tournament) return prev;
         const t = structuredClone(prev.tournament);
         applyMatchResult(t, matchId, result, prev.players);
@@ -410,7 +491,7 @@ export default function App() {
       });
     },
     simulateRound() {
-      setState((prev) => {
+      applyEngine((prev) => {
         const t = structuredClone(prev.tournament);
         if (t.format === "cup") {
           if (t.phase === "groups") {
@@ -461,7 +542,7 @@ export default function App() {
       });
     },
     simulateAll() {
-      setState((prev) => {
+      applyEngine((prev) => {
         const t = structuredClone(prev.tournament);
         let guard = 0;
         while (!tournamentFinished(t) && guard < 600) {
@@ -476,12 +557,13 @@ export default function App() {
       });
     },
     playAgain() {
-      setState((prev) => ({
+      applyEngine((prev) => ({
         ...prev,
         phase: "lobby",
         draft: null,
         tournament: null,
         presenting: null,
+        tournamentToken: null,
       }));
     },
   };
@@ -493,7 +575,7 @@ export default function App() {
     if (!controller) return;
     const off = room.onBroadcast?.((event, data) => {
       if (event !== "draft") return;
-      setState((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+      applyEngine((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
     });
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -517,9 +599,11 @@ export default function App() {
     const token = gstate?.tournamentToken;
     if (!t || !token) return;
     const name = t.format === "league" ? "Liga FutDraft" : t.format === "cup" ? "Copa FutDraft" : "Mata-mata FutDraft";
+    // só humanos (não-bot) com id uuid viram user_id; bots têm rowId uuid mas não são profiles
     const sideOf = (id) => {
       const p = gstate.players.find((x) => x.id === id);
-      return { userId: isUuid(id) ? id : null, squad: p?.squadId || null };
+      const isHuman = p && !p.isBot && isUuid(id);
+      return { userId: isHuman ? id : null, squad: p?.squadId || null };
     };
     for (const m of allMatches(t)) {
       if (!m.played || !m.result || m.result.bye || m.isBye) continue;
@@ -536,9 +620,10 @@ export default function App() {
       if (!recordedRef.current.has(ckey)) {
         recordedRef.current.add(ckey);
         const champ = gstate.players.find((x) => x.id === t.champion);
+        const champHuman = champ && !champ.isBot && isUuid(t.champion);
         history.setChampion({
           token,
-          championUserId: isUuid(t.champion) ? t.champion : null,
+          championUserId: champHuman ? t.champion : null,
           championSquad: champ?.squadId || null,
         });
       }
