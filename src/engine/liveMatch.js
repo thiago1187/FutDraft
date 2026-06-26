@@ -70,8 +70,11 @@ export function createLiveMatch(home, away, opts = {}) {
     events: [],
     lastEvent: null,
     cinematic: null,
+    penaltyPending: null, // pênalti EM JOGO aguardando cobrança (resolvido pela UI); { att, def, taker, picks, deadline, animating, lastKick, id }
     stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0] },
     ready: { home: !!cpu.home, away: !!cpu.away },
+    started: !!(cpu.home && cpu.away), // bot×bot começa na hora; senão espera o ready-gate
+    preReady: { home: !!cpu.home, away: !!cpu.away }, // CPU já entra pronta
     momentum: 0,
     xg: [0, 0],
     xgTimeline: [{ m: 0, h: 0, a: 0 }], // corrida de xG (em escada a cada finalização)
@@ -87,6 +90,7 @@ export function createLiveMatch(home, away, opts = {}) {
   let elapsed = 0;
   let simAccum = 0;
   let cineId = 0;
+  let penSeq = 0; // id monotônico de cada pênalti em jogo (não reusa após resolver)
   let halftimeHeld = false;
 
   // ---------- helpers de domínio ----------
@@ -246,7 +250,7 @@ export function createLiveMatch(home, away, opts = {}) {
 
   // ---------- decisões de jogo ----------
   function simTick() {
-    if (state.cinematic || state.pass) return; // espera o passe chegar
+    if (state.cinematic || state.pass || state.penaltyPending) return; // espera o passe/pênalti
     const poss = state.possession;
     const opp = other(poss);
     ensureCarrier();
@@ -355,9 +359,9 @@ export function createLiveMatch(home, away, opts = {}) {
     const off = cardOffender(byside, fouler);
     const r = rnd();
     const pressao = state.tactics[byside].marking === "pressao";
-    if (off && r < (pressao ? 0.07 : 0.04)) {
+    if (off && r < (pressao ? 0.011 : 0.006)) {
       doRedCard(byside, off, "Cartão vermelho"); // vermelho direto
-    } else if (off && r < (pressao ? 0.58 : 0.45)) {
+    } else if (off && r < (pressao ? 0.40 : 0.30)) {
       off.yellow = (off.yellow || 0) + 1;
       if (off.yellow >= 2) {
         // SEGUNDO amarelo → expulso
@@ -391,19 +395,45 @@ export function createLiveMatch(home, away, opts = {}) {
     recalcLam();
   }
 
+  // Marca um pênalti EM JOGO: NÃO resolve sozinho — congela o jogo e aguarda a cobrança
+  // pela UI (cobrador escolhe o canto, goleiro o mergulho; timer 4s). A resolução vem
+  // por resolvePenalty(). A UI (host) preenche picks/deadline dentro de penaltyPending.
   function doPenalty(att) {
     state.stats.shots[idx(att)]++;
     const taker = pickScorer(att);
     const gk = gkRating(other(att));
+    // prob = qualidade do batedor vs goleiro → modula o desfecho (além do duelo de cantos)
     const prob = clamp(0.78 + (effOvr(taker) - gk) / 240, 0.6, 0.92);
-    const scored = rnd() < prob;
-    const aimY = 50 + (rnd() < 0.5 ? -1 : 1) * (16 + rnd(8));
-    const gkDir = scored ? (rnd() < 0.5 ? Math.sign(aimY - 50) : -Math.sign(aimY - 50)) : Math.sign(aimY - 50);
-    if (scored) { state.score[idx(att)]++; state.stats.onTarget[idx(att)]++; emit("goal", att, { scorer: taker.name, scorerId: taker.id, score: [...state.score], pen: true }); }
-    else emit("save", att, { pen: true });
-    setCinematic({ type: "penalty", side: att, shooter: taker.name, aimY, gkDir, outcome: scored ? "goal" : "save", holdMs: scored ? 2400 : 2000 });
-    state.possession = scored ? other(att) : other(att);
+    state.penaltyPending = {
+      att, def: other(att),
+      taker: { id: taker.id, name: taker.name }, prob,
+      picks: { aim: null, gk: null }, deadline: 0, animating: false, lastKick: null,
+      id: ++penSeq,
+    };
     state.carrier = null; state.pass = null;
+  }
+
+  // Resolve o pênalti em jogo a partir das escolhas (aim = canto do cobrador,
+  // gkDir = mergulho do goleiro). scored = o goleiro NÃO acertou o canto. Aplica
+  // gol/erro, cria a cinemática de pênalti e LIBERA o relógio (zera penaltyPending).
+  function resolvePenalty(scored, aim, gkDir, outcome) {
+    const pp = state.penaltyPending;
+    if (!pp) return false;
+    const { att, taker } = pp;
+    const out = outcome || (scored ? "goal" : "save"); // goal | save | miss
+    const aimY = aim === "cantoE" ? 32 : aim === "cantoD" ? 68 : 50;
+    const dir = gkDir === "cantoE" ? -1 : gkDir === "cantoD" ? 1 : 0;
+    if (scored) {
+      state.score[idx(att)]++; state.stats.onTarget[idx(att)]++;
+      emit("goal", att, { scorer: taker.name, scorerId: taker.id, score: [...state.score], pen: true });
+    } else {
+      emit("save", att, { pen: true });
+    }
+    setCinematic({ type: "penalty", side: att, shooter: taker.name, aimY, gkDir: dir, outcome: out, holdMs: scored ? 2400 : 2000 });
+    state.possession = other(att);
+    state.carrier = null; state.pass = null;
+    state.penaltyPending = null;
+    return true;
   }
 
   function pickScorer(side) {
@@ -439,14 +469,26 @@ export function createLiveMatch(home, away, opts = {}) {
     for (const side of ["home", "away"]) {
       const pi = idx(side);
       const lam = state.lam[side];
-      if (rnd() < clamp(0.06 + lam * 0.035, 0.02, 0.25)) { // ~9-12 chutes/time/jogo
+      const t = state.tactics[side];
+      // ESTILO afeta a FREQUÊNCIA de finalização de forma visível (impressão digital, §6):
+      // ataque total chuta MUITO mais (porém com xG menor por chute); retranca chuta
+      // menos e melhor; jogo direto e pressão também elevam o volume.
+      const post = t.posture === "ofensivo" ? 1.42 : t.posture === "defensivo" ? 0.66 : 1.0;
+      const shotMult = post * (0.9 + (t.build ?? 0.4) * 0.3) * (t.marking === "pressao" ? 1.07 : 1);
+      const xgPerShot = t.posture === "ofensivo" ? 0.82 : t.posture === "defensivo" ? 1.18 : 1;
+      if (rnd() < clamp((0.05 + lam * 0.04) * shotMult, 0.02, 0.34)) {
         state.stats.shots[pi]++;
         const on = rnd() < 0.36; // ~36% no alvo (além dos gols)
         if (on) state.stats.onTarget[pi]++;
-        state.xg[pi] += on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03; // qualidade da chance → xG
+        state.xg[pi] += (on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03) * xgPerShot; // chance → xG
         logXg();
       }
-      if (rnd() < clamp(0.035 + lam * 0.02, 0.01, 0.11)) state.stats.corners[pi]++; // ~4-6/time/jogo
+      if (rnd() < clamp((0.03 + lam * 0.022) * post, 0.01, 0.13)) state.stats.corners[pi]++; // estilo move escanteios
+    }
+    // pênalti EM JOGO (raro, ~0.25/jogo) — proporcional ao ataque; PAUSA o jogo p/ a
+    // cobrança (mini-tela). Preempta o gol do minuto.
+    for (const side of ["home", "away"]) {
+      if (rnd() < state.lam[side] * 0.00082) { doPenalty(side); return; }
     }
     // sorteio de gol (no máx. 1 por minuto p/ a cinemática ser vista)
     for (const side of ["home", "away"]) {
@@ -516,10 +558,19 @@ export function createLiveMatch(home, away, opts = {}) {
     const before = state.events.length;
     const real = Math.min(dtMs, 60);
 
+    // ready-gate: o jogo não anda até todos os técnicos confirmarem "Pronto".
+    if (!state.started) return [];
+
     // cinemática em andamento → congela o relógio do jogo
     if (state.cinematic) {
       state.cinematic.holdMs -= real * Math.min(speed, 2);
       if (state.cinematic.holdMs <= 0) state.cinematic = null;
+      moveTokens(real * speed);
+      return state.events.slice(before);
+    }
+    // pênalti EM JOGO aguardando a cobrança → congela o relógio (igual à cinemática).
+    // O loop só sai daqui quando a UI (host) chama resolvePenalty e zera penaltyPending.
+    if (state.penaltyPending) {
       moveTokens(real * speed);
       return state.events.slice(before);
     }
@@ -551,7 +602,7 @@ export function createLiveMatch(home, away, opts = {}) {
     }
 
     // avança MINUTO A MINUTO — cada minuto sorteia gol pelo λ (Poisson)
-    while (state.minute < targetMinute && !state.cinematic) {
+    while (state.minute < targetMinute && !state.cinematic && !state.penaltyPending) {
       state.minute++;
       minuteTick();
     }
@@ -560,7 +611,7 @@ export function createLiveMatch(home, away, opts = {}) {
     if (!state.cinematic) {
       simAccum += scaled;
       let guard = 0;
-      while (simAccum >= SIM_STEP && !state.cinematic && guard < 4) {
+      while (simAccum >= SIM_STEP && !state.cinematic && !state.penaltyPending && guard < 4) {
         simAccum -= SIM_STEP;
         simTick();
         guard++;
@@ -610,17 +661,39 @@ export function createLiveMatch(home, away, opts = {}) {
     for (const e of state.events) if (e.type === "goal" && e.scorerId) goalsBy[e.scorerId] = (goalsBy[e.scorerId] || 0) + 1;
     const notes = { home: [], away: [] };
     for (const side of ["home", "away"]) {
-      const pi = idx(side);
-      const conceded = state.score[1 - pi];
+      const pi = idx(side), oi = 1 - pi;
+      const scored = state.score[pi], conceded = state.score[oi];
+      const shotsAg = state.stats.shots[oi] || 0;            // finalizações sofridas
+      const possEdge = poss[pi] - poss[oi];                  // vantagem de posse (pp)
       for (const p of state.tokens[side]) {
-        let n = 6.0;
         const g = goalsBy[p.id] || 0;
-        n += g * 1.2;
-        if (p.pos === "GK") n += conceded === 0 ? 1.3 : -0.3 * conceded;
-        if (p.yellow) n -= 0.4 * p.yellow;
-        if (p.out) n -= 1.4;
-        n += (state.score[pi] - conceded) * 0.12; // peso do resultado coletivo
-        notes[side].push({ id: p.id, num: p.num, name: p.name, pos: p.pos, goals: g, yellow: p.yellow || 0, out: !!p.out, note: Math.round(clamp(n, 3, 10) * 10) / 10 });
+        let n = 6.0;
+        // "dia" do jogador — variância individual por partida (um craque pode ir mal)
+        n += (rnd() * 2 - 1) * 0.85;
+        // qualidade leve: jogador melhor tende a render um pouco mais
+        n += (p.ovr - 78) / 42;
+        // gols (peso alto)
+        n += g * 1.35;
+        // contribuição por SETOR conforme o jogo
+        if (p.pos === "GK") {
+          n += conceded === 0 ? 1.5 : conceded === 1 ? 0.2 : -0.5 * (conceded - 1);
+          n += shotsAg >= 6 && conceded <= 1 ? 0.4 : 0;       // segurou pressão
+        } else if (p.pos === "DEF") {
+          n += conceded === 0 ? 0.8 : -0.4 * conceded;
+          n += shotsAg <= 6 ? 0.3 : shotsAg >= 12 ? -0.3 : 0; // defesa controlou os chutes
+        } else if (p.pos === "MID") {
+          n += clamp(possEdge / 60, -0.5, 0.6);               // controle de meio-campo
+          n += g === 0 && scored > 0 ? 0.2 : 0;               // participou da construção
+        } else { // ATT
+          if (g === 0) n += scored > conceded ? -0.1 : -0.5;  // atacante sem gol pesa
+          n += scored >= 3 ? 0.3 : 0;
+        }
+        // resultado coletivo
+        n += (scored - conceded) * 0.16;
+        // disciplina
+        if (p.yellow) n -= 0.45 * p.yellow;
+        if (p.out) n -= 1.7;
+        notes[side].push({ id: p.id, num: p.num, name: p.name, pos: p.pos, goals: g, yellow: p.yellow || 0, out: !!p.out, note: Math.round(clamp(n, 3.5, 10) * 10) / 10 });
       }
     }
     let mvp = null;
@@ -669,6 +742,10 @@ export function createLiveMatch(home, away, opts = {}) {
     setPaused(v) { state.paused = v; },
     togglePause() { state.paused = !state.paused; return state.paused; },
     setReady(side) { state.ready[side] = true; },
+    // ready-gate de início: confirma um lado; quando os dois estão prontos, começa.
+    setPreReady(side) { state.preReady[side] = true; if (state.preReady.home && state.preReady.away) state.started = true; },
+    beginMatch() { state.preReady.home = true; state.preReady.away = true; state.started = true; },
+    isStarted: () => state.started,
     isHalftime: () => state.phase === "INT",
     substitute(side, outId, inPlayer) {
       if (state.subsLeft[side] <= 0 || !inPlayer) return false;
@@ -685,5 +762,6 @@ export function createLiveMatch(home, away, opts = {}) {
     },
     step,
     result,
+    resolvePenalty,
   };
 }

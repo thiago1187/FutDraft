@@ -9,7 +9,8 @@ import PostMatch from "./PostMatch.jsx";
 
 const SPEEDS = [1, 2, 4];
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
-const PEN_TIMER_MS = 3000; // 3s para cada técnico escolher; depois vai no aleatório
+const PEN_TIMER_MS = 6000; // disputa de pênaltis: 6s para escolher; depois vai no aleatório
+const IG_PEN_TIMER_MS = 4000; // pênalti EM JOGO: 4s para escolher canto/mergulho
 const rndDir = () => PEN_DIRS[Math.floor(Math.random() * PEN_DIRS.length)];
 const otherSide = (s) => (s === "home" ? "away" : "home");
 
@@ -91,6 +92,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     });
     engineRef.current = eng;
     if (forcePens) {
+      eng.beginMatch();
       eng.state.phase = "PEN";
       eng.state.minute = 90;
       pensStartedRef.current = true;
@@ -104,6 +106,12 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       lastTs.current = ts;
       const e = engineRef.current;
       if (e && !e.state.paused) e.step(Math.min(dt, 60), speedRef.current);
+      // rede de segurança: se os dois lados já estão prontos (ex.: bot×bot), começa.
+      if (e && !e.state.started && e.state.preReady?.home && e.state.preReady?.away) e.state.started = true;
+      // pênalti EM JOGO recém-marcado → arma o prazo de 4s (fonte: state do motor)
+      if (e?.state?.penaltyPending && e.state.penaltyPending.deadline === 0) {
+        e.state.penaltyPending.deadline = Date.now() + IG_PEN_TIMER_MS;
+      }
       if (room && ts - lastSnap.current > 200) {
         lastSnap.current = ts;
         room.broadcast("snap", compact(e.state));
@@ -121,7 +129,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; off && off(); };
+    // anti-AFK: se alguém não confirmar "Pronto" em 30s, começa mesmo assim.
+    const afk = setTimeout(() => { engineRef.current?.beginMatch?.(); setTick((n) => n + 1); }, 30000);
+    return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; clearTimeout(afk); off && off(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -165,12 +175,79 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, pens?.round, pens?.picks?.aim, pens?.picks?.gk, pens?.animating, pens?.done, pens?.turn]);
 
+  // ---- ÁRBITRO DO PÊNALTI EM JOGO (anfitrião) ----
+  // Espera o cobrador (canto) e o goleiro (mergulho); auto-preenche bots; no prazo de 4s
+  // sorteia o que faltar e dispara a cobrança. NUNCA trava — o host sempre resolve.
+  const ppArb = controller ? engineRef.current?.state?.penaltyPending : null;
+  useEffect(() => {
+    if (!controller) return;
+    const pp = engineRef.current?.state?.penaltyPending;
+    if (!pp || pp.animating || !pp.deadline) return;
+    const shoot = pp.att, goalie = otherSide(pp.att);
+    if (pp.picks.aim == null && sideIsBot(shoot)) { pp.picks.aim = rndDir(); setTick((n) => n + 1); return; }
+    if (pp.picks.gk == null && sideIsBot(goalie)) { pp.picks.gk = rndDir(); setTick((n) => n + 1); return; }
+    if (pp.picks.aim != null && pp.picks.gk != null) { igPenFire(); return; }
+    const ms = Math.max(0, pp.deadline - Date.now());
+    const id = setTimeout(() => {
+      const p2 = engineRef.current?.state?.penaltyPending;
+      if (!p2 || p2.animating) return;
+      if (p2.picks.aim == null) p2.picks.aim = rndDir();
+      if (p2.picks.gk == null) p2.picks.gk = rndDir();
+      igPenFire();
+    }, ms);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controller, ppArb?.id, ppArb?.picks?.aim, ppArb?.picks?.gk, ppArb?.animating, ppArb?.deadline]);
+
+  // Host: dispara a cobrança (define o lance) quando cobrador e goleiro escolheram.
+  function igPenFire() {
+    const pp = engineRef.current?.state?.penaltyPending;
+    if (!pp || pp.animating || pp.picks.aim == null || pp.picks.gk == null) return;
+    // Duelo de cantos DOMINA, mas a qualidade do batedor/goleiro (prob) modula:
+    // goleiro acertou o canto → defesa provável (craque ainda marca às vezes); errou → gol
+    // quase certo (mas batedor fraco ainda pode perder).
+    const matched = pp.picks.gk === pp.picks.aim;
+    const prob = pp.prob ?? 0.78;
+    const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
+    const pGoal = Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw));
+    const scored = Math.random() < pGoal;
+    // desfecho COERENTE com a animação: gol / defesa (goleiro acertou o canto) / pra fora
+    // (goleiro foi pro lado errado e o batedor errou — a bola sai, não é "defesa").
+    const outcome = scored ? "goal" : matched ? "save" : "miss";
+    pp.lastKick = { aim: pp.picks.aim, scored, gkDir: pp.picks.gk, outcome, side: pp.att, id: pp.id };
+    pp.animating = true;
+    setTick((n) => n + 1);
+  }
+  // Host registra uma escolha (canto do cobrador OU mergulho do goleiro).
+  function igPenApplyPick(role, value, id) {
+    const pp = engineRef.current?.state?.penaltyPending;
+    if (!pp || pp.animating) return;
+    if (id != null && pp.id !== id) return; // pick de um pênalti antigo
+    if (pp.picks[role] != null) return;
+    pp.picks[role] = value;
+    setTick((n) => n + 1);
+  }
+  // Uma escolha local da mini-tela. No online manda intent; no host/local aplica direto.
+  function igPenChoose(role, value) {
+    if (controller) igPenApplyPick(role, value, engineRef.current?.state?.penaltyPending?.id);
+    else room?.broadcast?.("cmd", { kind: "igpenpick", role, value, id: snap?.penaltyPending?.id });
+  }
+  // Host: após a animação, aplica o resultado no motor (gol/erro) e RETOMA o jogo.
+  function igPenCommit() {
+    const pp = engineRef.current?.state?.penaltyPending;
+    if (!pp || !pp.lastKick) return;
+    engineRef.current.resolvePenalty(pp.lastKick.scored, pp.lastKick.aim, pp.lastKick.gkDir, pp.lastKick.outcome);
+    setTick((n) => n + 1);
+  }
+
   function applyCommand(cmd) {
     const e = engineRef.current;
     if (!e) return;
     if (cmd.kind === "tactic") e.setTactic(cmd.side, cmd.patch);
     if (cmd.kind === "ready") e.setReady(cmd.side);
+    if (cmd.kind === "matchready") e.setPreReady(cmd.side);
     if (cmd.kind === "penpick") penApplyPick(cmd.role, cmd.value, cmd.round);
+    if (cmd.kind === "igpenpick") igPenApplyPick(cmd.role, cmd.value, cmd.id);
     if (cmd.kind === "sub") {
       const bp = (cmd.side === "home" ? home.bench : away.bench).find((p) => p.id === cmd.inId);
       e.substitute(cmd.side, cmd.outId, bp);
@@ -182,6 +259,16 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     for (const s of sides) {
       if (controller) engineRef.current?.setReady(s);
       else room?.broadcast?.("cmd", { kind: "ready", side: s });
+    }
+    setTick((n) => n + 1);
+  }
+  // READY-GATE de início: cada técnico confirma "Pronto"; a partida só começa quando
+  // os dois confirmam (CPU já entra pronta). O anfitrião NÃO força o início.
+  function matchReadyUp() {
+    const sides = isLocal ? humanSides : controllable;
+    for (const s of sides) {
+      if (controller) engineRef.current?.setPreReady(s);
+      else room?.broadcast?.("cmd", { kind: "matchready", side: s });
     }
     setTick((n) => n + 1);
   }
@@ -280,6 +367,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
 
   const view = controller ? engineRef.current?.state : snap;
   if (!view) return <div className="ml-loading">Preparando a partida…</div>;
+  const igPen = view.penaltyPending; // pênalti EM JOGO (motor no host / snapshot no cliente)
 
   const homeName = homeMgr?.teamName || home.name;
   const awayName = awayMgr?.teamName || away.name;
@@ -313,6 +401,31 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
 
   return (
     <div className={"matchlive-full" + (themeColor ? " themed" : "")} style={themeColor ? { "--team": themeColor } : undefined}>
+      {/* READY-GATE — a partida só começa quando os técnicos confirmam (host não força) */}
+      {view && !view.started && !finalResult && (
+        <div className="ml-pregame">
+          <div className="ml-pregame-card">
+            <span className="pen-eyebrow">Antes de começar</span>
+            <div className="ml-pregame-title">{homeName} <i>vs</i> {awayName}</div>
+            <div className="ml-pregame-ready">
+              {["home", "away"].filter((s) => !sideIsBot(s)).map((s) => (
+                <div key={s} className={`ml-pregame-row ${view.preReady?.[s] ? "ok" : ""}`}>
+                  <span className="ml-pregame-name">{s === "home" ? homeName : awayName}</span>
+                  <span className="ml-pregame-st">{view.preReady?.[s] ? "Pronto ✓" : "aguardando…"}</span>
+                </div>
+              ))}
+            </div>
+            {controllable.some((s) => !view.preReady?.[s]) ? (
+              <button className="btn btn-primary btn-block btn-lg" onClick={matchReadyUp}>Estou pronto →</button>
+            ) : controllable.length > 0 ? (
+              <div className="waiting">✓ Pronto! Aguardando o adversário…</div>
+            ) : (
+              <div className="waiting">Aguardando os técnicos confirmarem…</div>
+            )}
+            {onLeave && <button className="btn btn-ghost btn-block" onClick={onLeave}>Sair da partida</button>}
+          </div>
+        </div>
+      )}
       {/* PÓS-JOGO — súmula completa + corrida de xG + história */}
       {finalResult?.summary && (
         <PostMatch
@@ -498,6 +611,18 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           </div>
         </div>
       )}
+
+      {/* PÊNALTI EM JOGO — pausa + "PÊNALTI!" + mini-tela (cobrador/goleiro, 4s) */}
+      {igPen && (
+        <Penalties
+          mode="inGame"
+          pens={{ ...igPen, turn: igPen.att, score: [0, 0], home: [], away: [], round: 0, done: false }}
+          homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
+          controllable={controllable} isLocal={isLocal} isHost={controller} canFinish={false}
+          onAim={(v) => igPenChoose("aim", v)} onGk={(v) => igPenChoose("gk", v)} onResolve={igPenCommit}
+          onLeave={onLeave}
+        />
+      )}
     </div>
   );
 }
@@ -556,7 +681,7 @@ function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
     else if (cine.outcome === "post") { big = "NA TRAVE!"; cls = "post"; }
     else { big = "PRA FORA!"; cls = "miss"; }
   } else if (cine.type === "penalty") {
-    big = cine.outcome === "goal" ? "GOL DE PÊNALTI!" : "PÊNALTI DEFENDIDO!";
+    big = cine.outcome === "goal" ? "GOL DE PÊNALTI!" : cine.outcome === "miss" ? "PÊNALTI PRA FORA!" : "PÊNALTI DEFENDIDO!";
     sub = cine.shooter; cls = cine.outcome === "goal" ? "goal" : "save";
   } else if (cine.type === "yellow") { big = "CARTÃO AMARELO"; sub = cine.name; cls = "yellow"; }
   else if (cine.type === "red") { big = "CARTÃO VERMELHO"; sub = /amarelo/i.test(cine.reason || "") ? `${cine.name} · 2º amarelo` : cine.name; cls = "red"; }
@@ -687,6 +812,12 @@ function compact(s) {
     minute: s.minute, phase: s.phase, score: s.score, ball: { x: Math.round(s.ball.x * 10) / 10, y: Math.round(s.ball.y * 10) / 10 },
     tokens: { home: s.tokens.home.map(tk), away: s.tokens.away.map(tk) },
     carrier: s.carrier, cinematic: s.cinematic, men: s.men, ready: s.ready,
+    started: s.started, preReady: s.preReady,
+    penaltyPending: s.penaltyPending ? {
+      att: s.penaltyPending.att, def: s.penaltyPending.def, taker: s.penaltyPending.taker, id: s.penaltyPending.id,
+      picks: s.penaltyPending.picks, deadline: s.penaltyPending.deadline,
+      animating: !!s.penaltyPending.animating, lastKick: s.penaltyPending.lastKick || null,
+    } : null,
     lastEvent: s.lastEvent, events: s.events.slice(-14), tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats, goalsBy,
   };
 }
@@ -711,10 +842,19 @@ function isPenDecided(h, a, score) {
 const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
 const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllable, isLocal, isHost, canFinish, onAim, onGk, onResolve, onContinue, onLeave }) {
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllable, isLocal, isHost, canFinish, onAim, onGk, onResolve, onContinue, onLeave, mode = "shootout" }) {
+  const inGame = mode === "inGame";
   const lk = pens.lastKick;
   const [phase, setPhase] = useState("idle"); // idle | shoot | result
   const [, setClock] = useState(0); // re-render p/ a contagem regressiva
+  // Contagem regressiva pelo relógio DESTE aparelho (host e cliente), zerada a cada
+  // cobrança — imune à diferença de horário entre máquinas (corrige o bug do "226s").
+  const TIMER_MS = inGame ? IG_PEN_TIMER_MS : PEN_TIMER_MS;
+  const dlRef = useRef({ key: null, at: 0 });
+  const dlKey = inGame ? pens.id : pens.round;
+  if (!pens.done && !pens.animating && dlRef.current.key !== dlKey) {
+    dlRef.current = { key: dlKey, at: Date.now() + TIMER_MS };
+  }
 
   // anima quando chega um novo lance; ao fim, o anfitrião registra o resultado
   useEffect(() => {
@@ -736,7 +876,13 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   const shooting = pens.turn;
   const goalie = shooting === "home" ? "away" : "home";
   const shooterColor = shooting === "home" ? homeColor : awayColor;
-  const target = lk ? AIM_POS[lk.aim] : AIM_POS.meio;
+  // desfecho (gol/defesa/fora). Fallback p/ a disputa (sem outcome): scored? gol : defesa.
+  const outcome = lk?.outcome || (lk ? (lk.scored ? "goal" : "save") : "goal");
+  // se foi PRA FORA, a bola sai do gol (lado/alto); senão vai pro canto mirado.
+  const target = !lk ? AIM_POS.meio
+    : outcome === "miss"
+      ? { x: lk.aim === "cantoE" ? 3 : lk.aim === "cantoD" ? 97 : 50, y: lk.aim === "meio" ? 2 : 6 }
+      : AIM_POS[lk.aim];
   const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
   const animating = pens.animating && phase !== "idle";
   const showResult = phase === "result" && lk;
@@ -747,7 +893,7 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   const iGoalie = (controllable || []).includes(goalie);
   const needAim = iShoot && pens.picks?.aim == null;
   const needGk = iGoalie && pens.picks?.gk == null;
-  const remain = pens.deadline ? Math.max(0, Math.ceil((pens.deadline - Date.now()) / 1000)) : null;
+  const remain = (!pens.done && !pens.animating) ? Math.max(0, Math.ceil((dlRef.current.at - Date.now()) / 1000)) : null;
   const shootingTeamName = shooting === "home" ? homeName : awayName;
 
   const dots = (arr, n = 5) => {
@@ -759,12 +905,17 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   return (
     <div className="pen-overlay">
       <div className="pen-card">
-        <span className="pen-eyebrow">Disputa de pênaltis</span>
-        <div className="pen-score">
-          <span className="pen-name">{homeName}</span>
-          <span className="pen-nums"><b style={{ color: "#C7A24A" }}>{pens.score[0]}</b><i>—</i><b>{pens.score[1]}</b></span>
-          <span className="pen-name">{awayName}</span>
-        </div>
+        <span className={`pen-eyebrow ${inGame ? "ingame" : ""}`}>{inGame ? "⚽ Pênalti!" : "Disputa de pênaltis"}</span>
+        {choosing && remain != null && (
+          <div className={`pen-bigtimer ${remain <= 1 ? "urgent" : ""}`} key={"t" + remain}>{remain}</div>
+        )}
+        {!inGame && (
+          <div className="pen-score">
+            <span className="pen-name">{homeName}</span>
+            <span className="pen-nums"><b style={{ color: "#C7A24A" }}>{pens.score[0]}</b><i>—</i><b>{pens.score[1]}</b></span>
+            <span className="pen-name">{awayName}</span>
+          </div>
+        )}
 
         {/* CENA ANIMADA */}
         <div className="pen-scene">
@@ -795,7 +946,7 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
           </div>
           {/* etiqueta */}
           {showResult ? (
-            <div className={`pen-flash ${lk.scored ? "goal" : "save"}`}>{lk.scored ? "GOL!" : "DEFENDEU!"}</div>
+            <div className={`pen-flash ${outcome === "goal" ? "goal" : "save"}`}>{outcome === "goal" ? "GOL!" : outcome === "save" ? "DEFENDEU!" : "PRA FORA!"}</div>
           ) : choosing ? (
             <div className="pen-shooting">Cobrando: <b style={{ color: shooterColor }}>{shootingTeamName}</b>{remain != null && <span className="pen-countdown">{remain}s</span>}</div>
           ) : (
@@ -803,10 +954,12 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
           )}
         </div>
 
-        <div className="pen-rows">
-          <div className="pen-row"><span className="pen-tag" style={{ color: homeColor }}>{badge(homeName)}</span><div className="pen-dots">{dots(pens.home).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
-          <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
-        </div>
+        {!inGame && (
+          <div className="pen-rows">
+            <div className="pen-row"><span className="pen-tag" style={{ color: homeColor }}>{badge(homeName)}</span><div className="pen-dots">{dots(pens.home).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
+            <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
+          </div>
+        )}
 
         {/* ESCOLHAS — cobrador e goleiro, em paralelo, com timer de 3s */}
         {choosing && needAim && (
@@ -830,6 +983,13 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
             {controllable?.length === 0
               ? `Aguardando os técnicos… ${remain != null ? remain + "s" : ""}`
               : `Escolha feita! Aguardando o adversário… ${remain != null ? remain + "s" : ""}`}
+          </div>
+        )}
+        {/* válvula de saída: se travou (host caiu durante o pênalti em jogo), permite sair */}
+        {inGame && !isHost && !pens.animating && pens.deadline && Date.now() > pens.deadline + 6000 && onLeave && (
+          <div className="pen-actions">
+            <div className="pen-elim">Conexão com o anfitrião perdida.</div>
+            <button className="pen-aim-btn pen-def-btn" onClick={onLeave}>Sair pro Lobby</button>
           </div>
         )}
         {pens.animating && <div className="pen-wait">Cobrança!</div>}

@@ -105,7 +105,12 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
         {!isHost && <p className="hint">Só o anfitrião ajusta as configurações.</p>}
 
         {editing && me && (
-          <div className="card edit-card">
+          <div className="lobby-modal" onClick={() => setEditing(false)}>
+            <div className="lobby-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="lobby-modal-head">
+              <span className="lobby-modal-title">Editar meu time</span>
+              <button className="lobby-modal-x" onClick={() => setEditing(false)} aria-label="Fechar">✕</button>
+            </div>
             <label className="field">
               <span className="field-label">Nome do time</span>
               <input className="input" maxLength={20} value={me.teamName} onChange={(e) => actions.updateMe({ teamName: e.target.value })} />
@@ -142,6 +147,7 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
                   />
                 );
               })}
+            </div>
             </div>
           </div>
         )}
