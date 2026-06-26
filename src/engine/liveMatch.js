@@ -74,6 +74,7 @@ export function createLiveMatch(home, away, opts = {}) {
     ready: { home: !!cpu.home, away: !!cpu.away },
     momentum: 0,
     xg: [0, 0],
+    xgTimeline: [{ m: 0, h: 0, a: 0 }], // corrida de xG (em escada a cada finalização)
     paused: false,
     over: false,
     ratings: { home: rh, away: ra },
@@ -418,6 +419,10 @@ export function createLiveMatch(home, away, opts = {}) {
   function recalcLam() {
     state.lam = computeLambdas(state);
   }
+  // Grava um ponto na corrida de xG (escada) — chamado a cada finalização.
+  function logXg() {
+    state.xgTimeline.push({ m: state.minute, h: Math.round(state.xg[0] * 100) / 100, a: Math.round(state.xg[1] * 100) / 100 });
+  }
 
   // A cada MINUTO de jogo: recalcula λ (placar/fadiga/cartões), desgasta e SORTEIA gols.
   // Os gols são um processo de Poisson com taxa λ/90 — assim cada overall e cada decisão
@@ -436,7 +441,10 @@ export function createLiveMatch(home, away, opts = {}) {
       const lam = state.lam[side];
       if (rnd() < clamp(0.06 + lam * 0.035, 0.02, 0.25)) { // ~9-12 chutes/time/jogo
         state.stats.shots[pi]++;
-        if (rnd() < 0.36) state.stats.onTarget[pi]++; // ~36% no alvo (além dos gols)
+        const on = rnd() < 0.36; // ~36% no alvo (além dos gols)
+        if (on) state.stats.onTarget[pi]++;
+        state.xg[pi] += on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03; // qualidade da chance → xG
+        logXg();
       }
       if (rnd() < clamp(0.035 + lam * 0.02, 0.01, 0.11)) state.stats.corners[pi]++; // ~4-6/time/jogo
     }
@@ -460,6 +468,7 @@ export function createLiveMatch(home, away, opts = {}) {
     const aimY = 50 + (rnd() * 2 - 1) * 12;
     const gkDir = rnd() < 0.5 ? 1 : -1;
     state.xg[pi] += 0.5;
+    logXg();
     emit("goal", side, { scorer: shooter.name, scorerId: shooter.id, score: [...state.score] });
     setCinematic({ type: "shot", side, fromX, fromY, targetX: gx, aimY, outcome: "goal", gkDir, shooter: shooter.name, holdMs: 1700 });
     state.ball = { x: gx, y: clamp(aimY, 6, 94) };
@@ -476,6 +485,7 @@ export function createLiveMatch(home, away, opts = {}) {
     const sh = effOvr(shooter);
     state.stats.shots[pi]++;
     state.xg[pi] += clamp(0.06 + (sh - 70) / 240 + (bp - 0.78) * 0.2, 0.02, 0.4);
+    logXg();
 
     const fromX = shooter.x, fromY = shooter.y;
     const onTarget = rnd() < clamp(0.34 + (sh - 70) / 160, 0.22, 0.72);
@@ -585,7 +595,69 @@ export function createLiveMatch(home, away, opts = {}) {
     const goalEvents = state.events.filter((e) => e.type === "goal").map((e) => ({
       minute: e.minute, type: "goal", side: e.side, scorer: e.scorer, scorerId: e.scorerId, score: e.score,
     }));
-    return { homeGoals: h, awayGoals: a, events: goalEvents, pens: pens || null, winner, xg: [Math.round(state.xg[0] * 10) / 10, Math.round(state.xg[1] * 10) / 10] };
+    const xg = [Math.round(state.xg[0] * 10) / 10, Math.round(state.xg[1] * 10) / 10];
+    return { homeGoals: h, awayGoals: a, events: goalEvents, pens: pens || null, winner, xg, summary: buildSummary(pens, xg) };
+  }
+
+  // Súmula completa do §7: posse, finalizações, notas dos jogadores, craque, corrida
+  // de xG e história por templates. Tudo derivado do MESMO fluxo de eventos.
+  function buildSummary(pens, xg) {
+    const st = state.stats;
+    const possTot = st.possession[0] + st.possession[1] || 1;
+    const ph = Math.round((st.possession[0] / possTot) * 100);
+    const poss = [ph, 100 - ph];
+    const goalsBy = {};
+    for (const e of state.events) if (e.type === "goal" && e.scorerId) goalsBy[e.scorerId] = (goalsBy[e.scorerId] || 0) + 1;
+    const notes = { home: [], away: [] };
+    for (const side of ["home", "away"]) {
+      const pi = idx(side);
+      const conceded = state.score[1 - pi];
+      for (const p of state.tokens[side]) {
+        let n = 6.0;
+        const g = goalsBy[p.id] || 0;
+        n += g * 1.2;
+        if (p.pos === "GK") n += conceded === 0 ? 1.3 : -0.3 * conceded;
+        if (p.yellow) n -= 0.4 * p.yellow;
+        if (p.out) n -= 1.4;
+        n += (state.score[pi] - conceded) * 0.12; // peso do resultado coletivo
+        notes[side].push({ id: p.id, num: p.num, name: p.name, pos: p.pos, goals: g, yellow: p.yellow || 0, out: !!p.out, note: Math.round(clamp(n, 3, 10) * 10) / 10 });
+      }
+    }
+    let mvp = null;
+    for (const side of ["home", "away"]) for (const pl of notes[side]) {
+      if (!mvp || pl.note > mvp.note || (pl.note === mvp.note && pl.goals > mvp.goals)) {
+        mvp = { ...pl, side, team: side === "home" ? state.home.name : state.away.name };
+      }
+    }
+    const yel = [state.tokens.home.reduce((s, p) => s + (p.yellow ? 1 : 0), 0), state.tokens.away.reduce((s, p) => s + (p.yellow ? 1 : 0), 0)];
+    return {
+      score: [...state.score], xg, possession: poss,
+      shots: [...st.shots], onTarget: [...st.onTarget], corners: [...st.corners], fouls: [...st.fouls],
+      reds: [state.cards.home.length, state.cards.away.length], yellows: yel, men: { ...state.men },
+      xgTimeline: state.xgTimeline.slice(), notes, mvp,
+      pens: pens ? { home: pens.home, away: pens.away } : null,
+      names: { home: state.home.name, away: state.away.name },
+      colors: { home: state.home.color, away: state.away.color },
+      story: buildStory(pens, xg, poss),
+    };
+  }
+
+  function buildStory(pens, xg, poss) {
+    const [h, a] = state.score;
+    const diff = h - a;
+    const side = pens ? (pens.home > pens.away ? "home" : "away") : diff > 0 ? "home" : diff < 0 ? "away" : "draw";
+    const W = side === "home" ? state.home.name : side === "away" ? state.away.name : null;
+    const L = side === "home" ? state.away.name : state.home.name;
+    if ((h >= 7 && a === 0) || (a >= 7 && h === 0)) return `${h >= 7 ? state.home.name : state.away.name} aplicou um 7 a 0 — o placar lendário do 7a0!`;
+    if (pens) return `Decidido nos pênaltis: ${W} levou a melhor após o empate em ${h}.`;
+    if (side === "draw") return `Empate em ${h} a ${a} — jogo parelho, ninguém quis ceder.`;
+    const wxg = side === "home" ? xg[0] : xg[1], lxg = side === "home" ? xg[1] : xg[0];
+    const wposs = side === "home" ? poss[0] : poss[1];
+    if (lxg > wxg + 0.5) return `${W} venceu sem merecer tanto: ${L} criou mais, mas faltou pontaria (ou sobrou goleiro).`;
+    if (wposs < 42) return `Vitória cirúrgica no contra-ataque: ${W} teve menos a bola, mas foi clínico.`;
+    if (Math.abs(diff) >= 3) return `Goleada: ${W} atropelou ${L} por ${Math.abs(diff)} de diferença.`;
+    if (wposs > 58) return `${W} dominou a posse e controlou o jogo até o fim.`;
+    return `${W} venceu um jogo equilibrado por ${Math.abs(diff)}.`;
   }
 
   // ---------- API ----------
