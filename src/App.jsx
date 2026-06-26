@@ -154,13 +154,16 @@ export default function App() {
   }, []);
 
   // Carrega o meu profile (nome do time, escudo, cor) quando logo.
+  // Depende do UID, não do objeto `auth`: o Supabase emite um novo objeto de sessão a
+  // cada refresh de token/foco da aba, e refazer o fetch a cada evento trocava a
+  // referência de `profile` no meio da edição (apagava o que você digitava).
+  const authUid = auth?.user?.id || null;
   useEffect(() => {
-    const uid = auth?.user?.id;
-    if (!uid) { setProfile(null); return; }
+    if (!authUid) { setProfile(null); return; }
     let alive = true;
-    getProfile(uid).then((p) => alive && setProfile(p)).catch(() => {});
+    getProfile(authUid).then((p) => alive && setProfile(p)).catch(() => {});
     return () => { alive = false; };
-  }, [auth]);
+  }, [authUid]);
 
   useEffect(() => {
     roomRef.current = room;

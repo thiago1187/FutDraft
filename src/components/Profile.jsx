@@ -57,11 +57,15 @@ function MyCard({ profile, onProfileChange, setNotice }) {
   const [color, setColor] = useState(profile?.color || TEAM_COLORS[0]);
   const [saving, setSaving] = useState(false);
 
+  // Inicializa os campos AO ABRIR o editor — não a cada mudança de `profile`, senão
+  // uma atualização de `profile` (ex.: refresh de sessão) apagaria o que você digita.
   useEffect(() => {
+    if (!editing) return;
     setTeamName(profile?.team_name || "");
     setEmoji(profile?.emoji || TEAM_EMOJIS[0]);
     setColor(profile?.color || TEAM_COLORS[0]);
-  }, [profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   async function save() {
     setSaving(true);
