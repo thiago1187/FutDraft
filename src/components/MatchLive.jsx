@@ -9,7 +9,7 @@ import PostMatch from "./PostMatch.jsx";
 
 const SPEEDS = [1, 2, 4];
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
-const PEN_TIMER_MS = 3000; // 3s para cada técnico escolher; depois vai no aleatório
+const PEN_TIMER_MS = 6000; // disputa de pênaltis: 6s para escolher; depois vai no aleatório
 const IG_PEN_TIMER_MS = 4000; // pênalti EM JOGO: 4s para escolher canto/mergulho
 const rndDir = () => PEN_DIRS[Math.floor(Math.random() * PEN_DIRS.length)];
 const otherSide = (s) => (s === "home" ? "away" : "home");
@@ -845,6 +845,14 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   const lk = pens.lastKick;
   const [phase, setPhase] = useState("idle"); // idle | shoot | result
   const [, setClock] = useState(0); // re-render p/ a contagem regressiva
+  // Contagem regressiva pelo relógio DESTE aparelho (host e cliente), zerada a cada
+  // cobrança — imune à diferença de horário entre máquinas (corrige o bug do "226s").
+  const TIMER_MS = inGame ? IG_PEN_TIMER_MS : PEN_TIMER_MS;
+  const dlRef = useRef({ key: null, at: 0 });
+  const dlKey = inGame ? pens.id : pens.round;
+  if (!pens.done && !pens.animating && dlRef.current.key !== dlKey) {
+    dlRef.current = { key: dlKey, at: Date.now() + TIMER_MS };
+  }
 
   // anima quando chega um novo lance; ao fim, o anfitrião registra o resultado
   useEffect(() => {
@@ -883,7 +891,7 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   const iGoalie = (controllable || []).includes(goalie);
   const needAim = iShoot && pens.picks?.aim == null;
   const needGk = iGoalie && pens.picks?.gk == null;
-  const remain = pens.deadline ? Math.max(0, Math.ceil((pens.deadline - Date.now()) / 1000)) : null;
+  const remain = (!pens.done && !pens.animating) ? Math.max(0, Math.ceil((dlRef.current.at - Date.now()) / 1000)) : null;
   const shootingTeamName = shooting === "home" ? homeName : awayName;
 
   const dots = (arr, n = 5) => {

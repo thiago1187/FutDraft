@@ -359,9 +359,9 @@ export function createLiveMatch(home, away, opts = {}) {
     const off = cardOffender(byside, fouler);
     const r = rnd();
     const pressao = state.tactics[byside].marking === "pressao";
-    if (off && r < (pressao ? 0.020 : 0.011)) {
+    if (off && r < (pressao ? 0.011 : 0.006)) {
       doRedCard(byside, off, "Cartão vermelho"); // vermelho direto
-    } else if (off && r < (pressao ? 0.58 : 0.45)) {
+    } else if (off && r < (pressao ? 0.40 : 0.30)) {
       off.yellow = (off.yellow || 0) + 1;
       if (off.yellow >= 2) {
         // SEGUNDO amarelo → expulso
