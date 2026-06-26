@@ -85,12 +85,21 @@ function runLive(oH, oA, tacH) {
     knockout: false, homeColor: "#f00", awayColor: "#00f", cpu: { home: false, away: false },
   });
   if (tacH) eng.setTactic("home", tacH);
-  let g = 0;
+  const DIRS = ["cantoE", "meio", "cantoD"], rd = () => DIRS[Math.floor(Math.random() * 3)];
+  let g = 0, lastPen = 0, pens = 0;
   while (!eng.isOver() && g < 30000) {
     if (eng.state.phase === "INT") { eng.setReady("home"); eng.setReady("away"); }
+    const pp = eng.state.penaltyPending;
+    if (pp && !pp.animating && pp.id !== lastPen) { // árbitro: resolve com escolhas aleatórias
+      lastPen = pp.id; const aim = rd(), gk = rd(), matched = gk === aim, prob = pp.prob || 0.78;
+      const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
+      eng.resolvePenalty(Math.random() < Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw)), aim, gk);
+      pens++;
+    }
     eng.step(60, 6); g++;
   }
   const s = eng.state;
+  s._pens = pens;
   const poss = s.stats.possession[0] + s.stats.possession[1] || 1;
   let cardPos = { GK: 0, DEF: 0, MID: 0, ATT: 0 }, cards = 0;
   for (const side of ["home", "away"]) for (const p of s.tokens[side]) {
@@ -102,7 +111,7 @@ function runLive(oH, oA, tacH) {
     corners: s.stats.corners[0] + s.stats.corners[1], fouls: s.stats.fouls[0] + s.stats.fouls[1],
     reds: s.cards.home.filter((c) => c === "red").length + s.cards.away.filter((c) => c === "red").length,
     yellows: s.events.filter((e) => e.type === "yellow").length,
-    pens: s.events.filter((e) => e.type === "goal" && e.pen).length,
+    pens: s._pens || 0,
     xg: s.xg[0] + s.xg[1],
     homePoss: s.stats.possession[0] / poss,
     badOT: (s.stats.onTarget[0] > s.stats.shots[0] || s.stats.onTarget[1] > s.stats.shots[1]) ? 1 : 0,
@@ -139,7 +148,7 @@ function calibLive() {
   pass &= line("Faltas por time", (F / N_LIVE / 2).toFixed(1), "informativo", true);
   pass &= line("Vermelhos por jogo", (R / N_LIVE).toFixed(3), "0.15–0.45", within(R / N_LIVE, 0.15, 0.45));
   pass &= line("Amarelos por jogo", (Y / N_LIVE).toFixed(2), "informativo", true);
-  pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "~0.25 (gap conhecido)", true);
+  pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "0.15–0.40", within(P / N_LIVE, 0.15, 0.40));
   pass &= line("Estados impossíveis (noAlvo>chutes)", badOT, "0", badOT === 0);
   pass &= line("Estados impossíveis (gol>chutes)", badGoal, "0", badGoal === 0);
   pass &= line("Simetria |home-away| (sem mando)", pctStr(sym), "< 4 pp", sym < 0.04);
