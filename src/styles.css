@@ -1923,3 +1923,11 @@ body {
 .pen-bigtimer { width: 58px; height: 58px; margin: 12px auto 2px; border-radius: 50%; border: 3px solid var(--gold); color: var(--gold); font-family: var(--display); font-size: 30px; line-height: 1; display: flex; align-items: center; justify-content: center; animation: pen-tick 0.85s ease-out; }
 .pen-bigtimer.urgent { border-color: var(--red); color: var(--red); }
 @keyframes pen-tick { 0% { transform: scale(1.4); opacity: 0.35; } 60% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+
+/* EDITAR TIME em POP-UP (modal) em vez de inline na sidebar */
+.lobby-modal { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; background: rgba(12,11,9,.7); backdrop-filter: blur(3px); padding: 18px; overflow-y: auto; }
+.lobby-modal-card { background: var(--paper); border: 1.5px solid var(--line); border-radius: 16px; padding: 22px 22px 24px; width: 100%; max-width: 460px; box-shadow: 0 24px 60px rgba(0,0,0,.4); animation: rise 0.3s ease both; max-height: 90vh; overflow-y: auto; }
+.lobby-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.lobby-modal-title { font-family: var(--display); font-size: 22px; text-transform: uppercase; color: var(--ink); }
+.lobby-modal-x { width: 34px; height: 34px; border-radius: 9px; border: 1.5px solid var(--line); background: var(--cream); color: var(--ink); font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lobby-modal-x:hover { background: var(--line-soft); }
