@@ -270,7 +270,7 @@ function lastFive(group, teamId) {
   });
 }
 
-function GroupCardWC({ group, players, current }) {
+function GroupCardWC({ group, players, current, ovrById }) {
   const table = groupTable(group);
   const someCurrent = group.fixtures.some((f) => current && f.id === current.id);
   return (
@@ -293,6 +293,7 @@ function GroupCardWC({ group, players, current }) {
               <span className="gt-team">
                 <Avatar emoji={p?.emoji} color={p?.color} size={20} />
                 <span className="gt-name">{p?.teamName || "—"}</span>
+                {ovrById?.[row.id] != null && <Ovr value={ovrById[row.id]} />}
               </span>
               <span className="gt-pts">{row.Pts}</span>
               <span>{row.P}</span>
@@ -457,57 +458,56 @@ function BracketSection({ t, players, current, ovrById, isCup }) {
   );
 }
 
-// Card de jogo do bracket — estados: done (placar), live (a seguir, escuro), pending (tracejado).
+// Card de jogo do bracket. Tracejado SÓ quando não há nenhum time definido ainda.
+// Tendo time(s): card padrão (placar se jogado; senão escudo + OVR). Próximo jogo = escuro.
+function MatchRow({ p, ovrById, result, win, score, feeder }) {
+  if (!p) {
+    return <div className="mwc-row"><span className="mwc-crest dash" /><span className="mwc-name ph">{feeder ? `Vencedor · ${feeder}` : "A definir"}</span></div>;
+  }
+  return (
+    <div className={`mwc-row ${result ? (win ? "win" : "lose") : ""}`}>
+      <Avatar emoji={p.emoji} color={p.color} size={22} />
+      <span className="mwc-name">{p.teamName}</span>
+      {result ? <span className="mwc-score">{score}</span> : (ovrById?.[p.id] != null && <span className="mwc-ovr">{ovrById[p.id]}</span>)}
+    </div>
+  );
+}
+
 function MatchCard({ slot, players, ovrById, feeder, mirror }) {
   const home = players.find((p) => p.id === slot.homeId);
   const away = players.find((p) => p.id === slot.awayId);
   const r = slot.match?.result;
-  const status = slot.match?.played ? "done" : slot.current ? "live" : "pending";
-  const ph = feeder ? `Vencedor · ${feeder}` : "A definir";
+  const played = !!slot.match?.played;
+  const live = !played && slot.current;
 
-  if (status === "pending") {
+  // nenhum time definido → card pendente tracejado
+  if (!home && !away) {
     return (
       <div className={`mwc pending ${mirror ? "mirror" : ""}`}>
-        <div className="mwc-row"><span className="mwc-crest dash" /><span className="mwc-name ph">{home?.teamName || ph}</span></div>
+        <MatchRow p={null} feeder={feeder} />
         <div className="mwc-sep" />
-        <div className="mwc-row"><span className="mwc-crest dash" /><span className="mwc-name ph">{away?.teamName || ph}</span></div>
+        <MatchRow p={null} feeder={feeder} />
       </div>
     );
   }
 
-  if (status === "live") {
+  // próximo jogo → card escuro "a seguir"
+  if (live) {
     return (
       <div className={`mwc live ${mirror ? "mirror" : ""}`}>
         <div className="mwc-livehead"><span className="mwc-agora"><i className="mwc-livedot" />A seguir</span></div>
-        <div className="mwc-row">
-          <Avatar emoji={home?.emoji} color={home?.color} size={22} />
-          <span className="mwc-name">{home?.teamName || "—"}</span>
-          {ovrById?.[home?.id] != null && <span className="mwc-ovr">{ovrById[home.id]}</span>}
-        </div>
-        <div className="mwc-row">
-          <Avatar emoji={away?.emoji} color={away?.color} size={22} />
-          <span className="mwc-name">{away?.teamName || "—"}</span>
-          {ovrById?.[away?.id] != null && <span className="mwc-ovr">{ovrById[away.id]}</span>}
-        </div>
+        <MatchRow p={home} ovrById={ovrById} feeder={feeder} />
+        <MatchRow p={away} ovrById={ovrById} feeder={feeder} />
       </div>
     );
   }
 
-  const homeWin = r && r.winner === "home";
-  const awayWin = r && r.winner === "away";
+  // jogado ou agendado (tem time) → card padrão
   return (
     <div className={`mwc done ${mirror ? "mirror" : ""}`}>
-      <div className={`mwc-row ${homeWin ? "win" : "lose"}`}>
-        <Avatar emoji={home?.emoji} color={home?.color} size={22} />
-        <span className="mwc-name">{home?.teamName || "—"}</span>
-        <span className="mwc-score">{r ? r.homeGoals : ""}</span>
-      </div>
+      <MatchRow p={home} ovrById={ovrById} result={r} win={r && r.winner === "home"} score={r?.homeGoals} feeder={feeder} />
       <div className="mwc-sep" />
-      <div className={`mwc-row ${awayWin ? "win" : "lose"}`}>
-        <Avatar emoji={away?.emoji} color={away?.color} size={22} />
-        <span className="mwc-name">{away?.teamName || "—"}</span>
-        <span className="mwc-score">{r ? r.awayGoals : ""}</span>
-      </div>
+      <MatchRow p={away} ovrById={ovrById} result={r} win={r && r.winner === "away"} score={r?.awayGoals} feeder={feeder} />
       {r && r.pens && <div className="mwc-pens">pên {r.pens.home}-{r.pens.away}</div>}
     </div>
   );
