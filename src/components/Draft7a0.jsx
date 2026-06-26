@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { findFormation, formationsFor, ROLE_LABEL } from "../engine/formations.js";
 import { SQUAD_BY_ID, rollableSquads } from "../data/squads.js";
-import { compatibleSlots, isPickable, freePlayers } from "../engine/draft7a0.js";
+import { compatibleSlots, isPickable, freePlayers, playerFitsSlot } from "../engine/draft7a0.js";
 import { teamRatings } from "../engine/match.js";
 import { POS_COLOR } from "../engine/players.js";
 import { Flag } from "./bits.jsx";
@@ -106,6 +106,21 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
 
   const myDone = mgr.done;
   const compat = selPlayer ? compatibleSlots(selPlayer, formation, mgr.slots) : [];
+  // Ao tocar num titular (moveFrom), pisca TODAS as posições onde ele cabe — inclusive
+  // ocupadas (troca válida nos dois sentidos) — pra dar pra remanejar de novo.
+  const moveCompat = moveFrom == null ? [] : (() => {
+    const pa = playerOf(mgr.slots[moveFrom]);
+    if (!pa) return [];
+    const out = [];
+    formation.slots.forEach((slot, i) => {
+      if (i === moveFrom) return;
+      if (!playerFitsSlot(pa, slot)) return;
+      const pb = mgr.slots[i] != null ? playerOf(mgr.slots[i]) : null;
+      if (pb && !playerFitsSlot(pb, formation.slots[moveFrom])) return; // troca tem que valer nos dois lados
+      out.push(i);
+    });
+    return out;
+  })();
 
   function pickPlayer(p) {
     if (!isPickable(p, formation, mgr.slots, taken, takenPersons)) return;
@@ -271,10 +286,15 @@ export default function Draft7a0({ state, myId, isLocal, isHost, actions }) {
             selPlayer={selPlayer}
             compat={compat}
             moveFrom={moveFrom}
-            onTapSlot={(i) => (mgr.slots[i] != null ? tapFilledSlot(i) : placeInSlot(i))}
+            moveCompat={moveCompat}
+            onTapSlot={(i) => {
+              if (moveFrom != null) placeInSlot(i); // movendo: tenta mover/trocar p/ a posição i
+              else if (mgr.slots[i] != null) tapFilledSlot(i); // seleciona um titular p/ remanejar
+              else placeInSlot(i); // posiciona o jogador escolhido na lista
+            }}
           />
           <div className="d7-hint">
-            {moveFrom != null ? "Toque num slot vazio para mover o jogador." : selPlayer ? "Toque num slot destacado para posicionar." : "Toque num titular para mudar de posição."}
+            {moveFrom != null ? "Toque numa posição piscando para mover/trocar (ou no próprio jogador p/ cancelar)." : selPlayer ? "Toque num slot destacado para posicionar." : "Toque num titular para remanejar a posição."}
           </div>
         </div>
 
@@ -348,7 +368,7 @@ function FormationBar({ mgr, formation, canChange, onChange }) {
   );
 }
 
-function DraftPitch({ formation, slots, playerOf, selPlayer, compat, moveFrom, onTapSlot }) {
+function DraftPitch({ formation, slots, playerOf, selPlayer, compat, moveFrom, moveCompat = [], onTapSlot }) {
   return (
     <div className="d7-pitch">
       <div className="d7-pitch-grass" />
@@ -365,10 +385,10 @@ function DraftPitch({ formation, slots, playerOf, selPlayer, compat, moveFrom, o
         const p = playerOf(slots[i]);
         const left = `${slot.x}%`;
         const bottom = `${slot.y}%`;
-        const highlight = (selPlayer && compat.includes(i)) || moveFrom === i;
+        const canDrop = (selPlayer && compat.includes(i)) || moveCompat.includes(i);
         if (p) {
           return (
-            <button key={i} className={`d7-slot filled ${moveFrom === i ? "moving" : ""}`} style={{ left, bottom }} onClick={() => onTapSlot(i)}>
+            <button key={i} className={`d7-slot filled ${moveFrom === i ? "moving" : ""} ${moveCompat.includes(i) ? "swap-hi" : ""}`} style={{ left, bottom }} onClick={() => onTapSlot(i)}>
               <span className="d7-disc" style={{ borderColor: POS_COLOR[p.pos] }}>
                 <Flag iso2={p.iso2} src={p.flagSrc} emoji={p.flag} className="d7-disc-flag" round />
               </span>
@@ -377,7 +397,7 @@ function DraftPitch({ formation, slots, playerOf, selPlayer, compat, moveFrom, o
           );
         }
         return (
-          <button key={i} className={`d7-slot empty ${highlight ? "hi" : ""}`} style={{ left, bottom }} onClick={() => onTapSlot(i)}>
+          <button key={i} className={`d7-slot empty ${canDrop ? "hi" : ""}`} style={{ left, bottom }} onClick={() => onTapSlot(i)}>
             <span className="d7-slot-circle">{slot.role}</span>
           </button>
         );

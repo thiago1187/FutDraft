@@ -484,7 +484,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         )}
         {controller ? (
           <>
-            <button className={`mlf-cbtn ${paused ? "resume" : ""}`} onClick={togglePause}>
+            <button className={`mlf-cbtn ${paused ? "resume" : ""}`} onClick={() => { togglePause(); if (!paused) { if (iAmManager) setTacticsOpen(true); } else setTacticsOpen(false); }}>
               <span>{paused ? "▶" : "❚❚"}</span> {paused ? "Retomar jogo" : "Pausa técnica"}
             </button>
             <div className="mlf-spacer" />
