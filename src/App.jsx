@@ -172,7 +172,7 @@ export default function App() {
         code,
         hostId: myId,
         phase: "lobby",
-        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6 },
+        settings: { format: "knockout", modality: "pvp", difficulty: "classic", turnTimer: 30, squadPool: "all", bracketSize: 4, leagueSize: 6, cupSize: 8 },
         players: [host],
         draft: null,
         tournament: null,
@@ -284,10 +284,13 @@ export default function App() {
       setState((prev) => {
         const humanCount = prev.players.filter((p) => !p.isBot).length;
         if (humanCount < 1) return prev;
-        // Auto-preenche as vagas com seleções-bot aleatórias até o alvo:
-        // mata-mata usa o tamanho da chave; pontos corridos usa a quantidade escolhida.
-        const targetN = prev.settings.format === "league" ? (prev.settings.leagueSize || 6) : (prev.settings.bracketSize || 4);
-        const target = Math.min(16, Math.max(targetN, prev.players.length));
+        // Auto-preenche as vagas com seleções-bot aleatórias até o alvo conforme o formato.
+        const fmt = prev.settings.format;
+        const targetN = fmt === "league" ? (prev.settings.leagueSize || 6)
+          : fmt === "cup" ? (prev.settings.cupSize || 8)
+          : (prev.settings.bracketSize || 4);
+        const floor = fmt === "cup" ? 6 : 2; // copa precisa de pelo menos 6 times
+        const target = Math.min(16, Math.max(targetN, prev.players.length, floor));
         const players = [...prev.players];
         let guard = 0;
         while (players.length < target && guard < 32) {
@@ -329,9 +332,8 @@ export default function App() {
         const t = structuredClone(prev.tournament);
         const m = nextMatch(t);
         if (!m) return prev;
-        const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), {
-          knockout: t.format === "knockout",
-        });
+        const ko = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
+        const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: ko });
         applyMatchResult(t, m.id, result, prev.players);
         return { ...prev, tournament: t, presenting: { matchId: m.id, ts: Date.now() } };
       });
@@ -358,7 +360,28 @@ export default function App() {
     simulateRound() {
       setState((prev) => {
         const t = structuredClone(prev.tournament);
-        if (t.format === "knockout") {
+        if (t.format === "cup") {
+          if (t.phase === "groups") {
+            const allFix = t.groups.flatMap((g) => g.fixtures);
+            const unplayed = allFix.filter((f) => !f.played);
+            if (unplayed.length) {
+              const r = Math.min(...unplayed.map((f) => f.round));
+              for (const f of allFix) {
+                if (f.round === r && !f.played) {
+                  const result = simulateMatch(buildTeam(prev, f.homeId), buildTeam(prev, f.awayId), { knockout: false });
+                  applyMatchResult(t, f.id, result, prev.players);
+                }
+              }
+            }
+          } else {
+            const round = t.rounds[t.rounds.length - 1];
+            for (const m of round) {
+              if (m.played || m.isBye) continue;
+              const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: true });
+              applyMatchResult(t, m.id, result, prev.players);
+            }
+          }
+        } else if (t.format === "knockout") {
           const round = t.rounds[t.rounds.length - 1];
           for (const m of round) {
             if (m.played) continue;
@@ -392,9 +415,8 @@ export default function App() {
         while (!tournamentFinished(t) && guard < 600) {
           const m = nextMatch(t);
           if (!m) break;
-          const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), {
-            knockout: t.format === "knockout",
-          });
+          const ko = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
+          const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: ko });
           applyMatchResult(t, m.id, result, prev.players);
           guard++;
         }

@@ -87,10 +87,9 @@ function maybeAdvanceKnockout(t) {
   return t;
 }
 
-// ---------- PONTOS CORRIDOS ----------
-function createLeague(ids) {
-  const teams = shuffle(ids);
-  const arr = teams.slice();
+// Turno único (round-robin) entre os `ids` — usado por liga e por cada grupo da copa.
+function roundRobin(ids) {
+  const arr = ids.slice();
   if (arr.length % 2 !== 0) arr.push(null);
   const m = arr.length;
   const roundsN = m - 1;
@@ -107,7 +106,78 @@ function createLeague(ids) {
     }
     rot = [rot[0], rot[m - 1], ...rot.slice(1, m - 1)];
   }
-  return { format: "league", fixtures, champion: null };
+  return fixtures;
+}
+
+// ---------- PONTOS CORRIDOS ----------
+function createLeague(ids) {
+  return { format: "league", fixtures: roundRobin(shuffle(ids)), champion: null };
+}
+
+// ---------- COPA (fase de grupos → mata-mata) ----------
+const GROUP_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+
+function createCup(ids) {
+  const teams = shuffle(ids);
+  const n = teams.length;
+  const G = n >= 12 ? 4 : 2; // 4 grupos a partir de 12 times; senão 2
+  const buckets = Array.from({ length: G }, () => []);
+  teams.forEach((id, i) => buckets[i % G].push(id)); // distribui o mais uniforme possível
+  const groups = buckets.map((gids, gi) => ({
+    name: GROUP_NAMES[gi],
+    ids: gids,
+    fixtures: roundRobin(gids),
+  }));
+  return { format: "cup", phase: "groups", groups, rounds: [], champion: null };
+}
+
+// Tabela de classificação a partir de um conjunto de ids + jogos (liga ou grupo).
+function standingsFrom(ids, fixtures) {
+  const map = {};
+  ids.forEach((id) => { map[id] = { id, P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0, Pts: 0 }; });
+  for (const f of fixtures) {
+    if (!f.played || !f.result) continue;
+    const h = map[f.homeId], a = map[f.awayId];
+    if (!h || !a) continue;
+    const hg = f.result.homeGoals, ag = f.result.awayGoals;
+    h.P++; a.P++; h.GF += hg; h.GA += ag; a.GF += ag; a.GA += hg;
+    if (hg > ag) { h.W++; a.L++; h.Pts += 3; }
+    else if (ag > hg) { a.W++; h.L++; a.Pts += 3; }
+    else { h.D++; a.D++; h.Pts++; a.Pts++; }
+  }
+  const rows = Object.values(map).map((r) => ({ ...r, GD: r.GF - r.GA }));
+  rows.sort((x, y) => y.Pts - x.Pts || y.GD - x.GD || y.GF - x.GF || String(x.id).localeCompare(String(y.id)));
+  return rows;
+}
+
+// Tabela de um grupo da copa.
+export function groupTable(group) {
+  return standingsFrom(group.ids, group.fixtures);
+}
+
+// Todos os jogos de grupo já foram disputados?
+function groupsDone(t) {
+  return t.groups.every((g) => g.fixtures.every((f) => f.played));
+}
+
+// Monta o mata-mata da copa com os 2 primeiros de cada grupo (cruzamento 1ºX2º).
+function buildCupKnockout(t) {
+  const q = t.groups.map((g) => {
+    const tb = standingsFrom(g.ids, g.fixtures);
+    return [tb[0]?.id, tb[1]?.id]; // [1º, 2º]
+  });
+  const G = q.length;
+  let pairs;
+  if (G === 2) {
+    pairs = [[q[0][0], q[1][1]], [q[1][0], q[0][1]]];
+  } else { // 4 grupos: cruzamento padrão p/ 1º de um grupo só reencontrar 1º na final
+    pairs = [
+      [q[0][0], q[1][1]], [q[2][0], q[3][1]],
+      [q[1][0], q[0][1]], [q[3][0], q[2][1]],
+    ];
+  }
+  t.rounds = [pairs.map(([h, a]) => mkMatch(h, a, 0))];
+  t.phase = "knockout";
 }
 
 export function leagueTable(t, players) {
@@ -168,6 +238,31 @@ function koStageLabel(t, e) {
 // (quem cai mais tarde fica melhor; eliminados na mesma fase empatam na posição).
 export function finalStandings(t, players) {
   if (!t) return [];
+  // COPA: classificação no mata-mata (quem passou) + eliminados na fase de grupos abaixo.
+  if (t.format === "cup") {
+    const koIds = new Set();
+    for (const r of t.rounds || []) for (const m of r) { if (m.homeId) koIds.add(m.homeId); if (m.awayId) koIds.add(m.awayId); }
+    const elim = {};
+    for (let r = 0; r < (t.rounds?.length || 0); r++) for (const m of t.rounds[r]) {
+      if (m.isBye || !m.result) continue;
+      const loser = m.result.winner === "home" ? m.awayId : m.homeId;
+      if (loser) elim[loser] = r;
+    }
+    const koArr = [...koIds].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1) }));
+    koArr.sort((a, b) => b.e - a.e);
+    const out = [];
+    let pos = 1;
+    for (let i = 0; i < koArr.length; i++) {
+      if (i > 0 && koArr[i].e !== koArr[i - 1].e) pos = i + 1;
+      out.push({ id: koArr[i].id, pos, detail: koStageLabel(t, koArr[i].e), sub: null });
+    }
+    const grp = [];
+    for (const g of t.groups) for (const r of standingsFrom(g.ids, g.fixtures)) if (!koIds.has(r.id)) grp.push(r);
+    grp.sort((x, y) => y.Pts - x.Pts || y.GD - x.GD || y.GF - x.GF);
+    let gp = out.length + 1;
+    for (const r of grp) out.push({ id: r.id, pos: gp++, detail: "Fase de grupos", sub: `${r.Pts} pts` });
+    return out;
+  }
   // Detecção ESTRUTURAL (robusta mesmo se `format` faltar): liga tem fixtures, mata-mata tem rounds.
   if (t.format === "league" || (t.fixtures && !t.rounds)) {
     return leagueTable(t, players).map((r, i) => ({
@@ -202,13 +297,15 @@ export function finalStandings(t, players) {
 // ---------- API GERAL ----------
 export function createTournament(players, settings) {
   const ids = players.map((p) => p.id);
-  const t = settings.format === "league" ? createLeague(ids) : createKnockout(ids);
-  return t;
+  if (settings.format === "league") return createLeague(ids);
+  if (settings.format === "cup") return createCup(ids);
+  return createKnockout(ids);
 }
 
 export function allMatches(t) {
   if (!t) return [];
   if (t.format === "league") return t.fixtures;
+  if (t.format === "cup") return [...t.groups.flatMap((g) => g.fixtures), ...(t.rounds || []).flat()];
   return t.rounds.flat();
 }
 
@@ -218,6 +315,23 @@ export function nextMatch(t) {
 
 // Aplica o resultado a uma partida (mutando o torneio passado) e avança a fase se preciso.
 export function applyMatchResult(t, matchId, result, players) {
+  if (t.format === "cup") {
+    if (t.phase === "groups") {
+      let target = null;
+      for (const g of t.groups) { const f = g.fixtures.find((m) => m.id === matchId); if (f) { target = f; break; } }
+      if (!target) return t;
+      target.result = result; target.played = true;
+      if (groupsDone(t)) buildCupKnockout(t); // fase de grupos acabou → monta o mata-mata
+    } else {
+      let target = null;
+      for (const r of t.rounds) { const f = r.find((m) => m.id === matchId); if (f) { target = f; break; } }
+      if (!target) return t;
+      target.result = result; target.played = true;
+      maybeAdvanceKnockout(t);
+    }
+    return t;
+  }
+
   let target = null;
   if (t.format === "league") {
     target = t.fixtures.find((f) => f.id === matchId);
@@ -241,7 +355,7 @@ export function applyMatchResult(t, matchId, result, players) {
 export function tournamentFinished(t) {
   if (!t) return false;
   if (t.format === "league") return t.fixtures.every((f) => f.played);
-  return !!t.champion;
+  return !!t.champion; // mata-mata e copa: terminam quando há campeão
 }
 
 // Artilharia agregada do campeonato.

@@ -4,6 +4,7 @@ import { Avatar, Crown, TEAM_COLORS, TEAM_EMOJIS, TEAM_FLAGS, flagUrl } from "./
 const FORMATS = [
   { id: "knockout", label: "Mata-mata" },
   { id: "league", label: "Pontos corridos" },
+  { id: "cup", label: "Copa" },
 ];
 const MODALITIES = [
   { id: "pvp", label: "Técnicos ×", desc: "Os XI se enfrentam" },
@@ -33,11 +34,14 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
   const set = state.settings;
   const humanCount = state.players.filter((p) => !p.isBot).length;
   const canStart = humanCount >= 1;
-  const isLeague = (set.format || "knockout") === "league";
-  const sizeKey = isLeague ? "leagueSize" : "bracketSize";
-  const targetSize = isLeague ? (set.leagueSize || 6) : (set.bracketSize || 4);
+  const format = set.format || "knockout";
+  const isLeague = format === "league";
+  const isCup = format === "cup";
+  const sizeKey = isLeague ? "leagueSize" : isCup ? "cupSize" : "bracketSize";
+  const targetSize = isLeague ? (set.leagueSize || 6) : isCup ? (set.cupSize || 8) : (set.bracketSize || 4);
   const shownTotal = Math.max(targetSize, state.players.length);
-  const minSize = Math.max(2, state.players.length); // não dá pra ter menos vagas que jogadores
+  // copa precisa de pelo menos 6 times (para a fase de grupos fazer sentido)
+  const minSize = Math.max(isCup ? 6 : 2, state.players.length);
   const emptySlots = Math.max(0, shownTotal - state.players.length);
   const setSize = (n) => pick({ [sizeKey]: Math.min(16, Math.max(minSize, n)) });
   const usedByOthers = state.players.filter((p) => p.id !== myId).map((p) => p.color);
@@ -86,7 +90,13 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
             max={16}
             isHost={isHost}
             onChange={setSize}
-            hint={isLeague ? "Pode ser ímpar — vagas viram CPU ao iniciar." : "Sobras entram com bye — vagas viram CPU ao iniciar."}
+            hint={
+              isCup
+                ? `${shownTotal >= 12 ? 4 : 2} grupos → 2 de cada vão ao mata-mata. Vagas viram CPU.`
+                : isLeague
+                ? "Pode ser ímpar — vagas viram CPU ao iniciar."
+                : "Sobras entram com bye — vagas viram CPU ao iniciar."
+            }
           />
           <Seg label="Dificuldade do draft" options={DIFFICULTIES} value={set.difficulty || "classic"} isHost={isHost} onPick={(v) => pick({ difficulty: v })} />
           <Seg label="Seleções no draft" options={POOLS} value={set.squadPool || "all"} isHost={isHost} onPick={(v) => pick({ squadPool: v })} />

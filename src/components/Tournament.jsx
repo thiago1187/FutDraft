@@ -2,6 +2,7 @@ import {
   nextMatch,
   knockoutRoundLabels,
   leagueTable,
+  groupTable,
   roundLabel,
   allMatches,
 } from "../engine/tournament.js";
@@ -45,16 +46,18 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
   const t = state.tournament;
   const players = state.players;
 
+  // mata-mata "de verdade", ou fase eliminatória da copa → empates vão a pênaltis
+  const knockoutNow = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
+
   // partida em apresentação
   if (state.presenting) {
-    const all = t.format === "league" ? t.fixtures : t.rounds.flat();
-    const m = all.find((x) => x.id === state.presenting.matchId);
+    const m = allMatches(t).find((x) => x.id === state.presenting.matchId);
     // Partida 2D AO VIVO (tela cheia)
     if (m && state.presenting.mode === "live") {
       return (
         <MatchLive
           key={m.id}
-          match={{ id: m.id, knockout: t.format === "knockout" }}
+          match={{ id: m.id, knockout: knockoutNow }}
           home={buildTeam(state, m.homeId)}
           away={buildTeam(state, m.awayId)}
           homeMgr={players.find((p) => p.id === m.homeId)}
@@ -82,10 +85,16 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
 
   const upcoming = nextMatch(t);
   const isKnock = t.format === "knockout";
+  const isCup = t.format === "cup";
 
   // contagem de jogos jogados / faltando (ignora byes no mata-mata)
   let played, faltam;
-  if (isKnock) {
+  if (isCup) {
+    const groupGames = t.groups.reduce((s, g) => s + g.fixtures.length, 0);
+    const koTotal = 2 * t.groups.length - 1; // jogos do mata-mata (bracket de 2×nº de grupos)
+    played = allMatches(t).filter((m) => m.played && !m.isBye).length;
+    faltam = Math.max(0, groupGames + koTotal - played);
+  } else if (isKnock) {
     const round0 = t.rounds[0];
     const S = round0.length * 2;
     const byeCount = round0.filter((m) => m.isBye).length;
@@ -100,7 +109,13 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
   // rótulo da fase atual (subtítulo + eyebrow do painel)
   let roundName = "";
   if (upcoming) {
-    if (isKnock) {
+    if (isCup) {
+      if (t.phase === "groups") roundName = "Fase de grupos";
+      else {
+        const ri = t.rounds.findIndex((r) => r.some((m) => m.id === upcoming.id));
+        roundName = ri >= 0 ? roundLabel(t.rounds[ri].length) : "Mata-mata";
+      }
+    } else if (isKnock) {
       const ri = t.rounds.findIndex((r) => r.some((m) => m.id === upcoming.id));
       roundName = roundLabel(t.rounds[ri].length);
     } else {
@@ -117,7 +132,7 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
       {/* CABEÇALHO */}
       <header className="cup-head">
         <div className="cup-head-l">
-          <div className="eyebrow accent">{isKnock ? "Mata-mata" : "Pontos corridos"}</div>
+          <div className="eyebrow accent">{isCup ? "Copa · grupos + mata-mata" : isKnock ? "Mata-mata" : "Pontos corridos"}</div>
           <h1 className="cup-title">Copa em andamento</h1>
           <div className="cup-sub">
             {roundName ? `${roundName} · ` : ""}{players.length} técnicos
@@ -140,7 +155,9 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
 
       <div className="cup-body">
         <div className="cup-main">
-          {isKnock ? (
+          {isCup ? (
+            <CupView t={t} players={players} current={upcoming} ovrById={ovrById} />
+          ) : isKnock ? (
             <KnockoutBracket t={t} players={players} current={upcoming} ovrById={ovrById} />
           ) : (
             <LeagueView t={t} players={players} current={upcoming} ovrById={ovrById} />
@@ -322,6 +339,73 @@ function SlotTeam({ player, placeholder, ovr, goals, win }) {
         <span className="mc-name muted ph">{placeholder}</span>
       )}
       {goals != null && <span className="mc-goals">{goals}</span>}
+    </div>
+  );
+}
+
+// ---------- COPA (grupos + mata-mata) ----------
+function CupView({ t, players, current, ovrById }) {
+  const showKnockout = t.phase === "knockout" && t.rounds.length > 0;
+  return (
+    <div className="cup-view">
+      <div className="cup-section-label">Fase de grupos{showKnockout ? " · encerrada" : ""}</div>
+      <div className="cup-groups">
+        {t.groups.map((g) => (
+          <GroupCard key={g.name} group={g} players={players} ovrById={ovrById} current={current} />
+        ))}
+      </div>
+      {showKnockout && (
+        <>
+          <div className="cup-section-label">Mata-mata</div>
+          <KnockoutBracket t={t} players={players} current={current} ovrById={ovrById} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function GroupCard({ group, players, ovrById, current }) {
+  const table = groupTable(group);
+  return (
+    <div className="group-card">
+      <div className="group-title">Grupo {group.name}</div>
+      <div className="table group-table">
+        <div className="table-head">
+          <span className="th-pos">#</span><span className="th-team">Time</span>
+          <span>P</span><span>J</span><span>V</span><span>E</span><span>D</span><span>SG</span>
+        </div>
+        {table.map((row, i) => {
+          const p = players.find((pl) => pl.id === row.id);
+          return (
+            <div className={`table-row ${i < 2 ? "qualify" : ""}`} key={row.id}>
+              <span className="th-pos">{i + 1}</span>
+              <span className="th-team">
+                <Avatar emoji={p?.emoji} color={p?.color} size={20} />
+                <span className="tr-name">{p?.teamName}</span>
+                {ovrById?.[row.id] != null && <Ovr value={ovrById[row.id]} />}
+              </span>
+              <span className="tr-pts">{row.Pts}</span>
+              <span>{row.P}</span><span>{row.W}</span><span>{row.D}</span><span>{row.L}</span>
+              <span>{row.GD > 0 ? "+" + row.GD : row.GD}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="group-fixtures">
+        {group.fixtures.map((m) => {
+          const home = players.find((p) => p.id === m.homeId);
+          const away = players.find((p) => p.id === m.awayId);
+          const r = m.result;
+          const isCur = current && current.id === m.id;
+          return (
+            <div className={`gfix ${isCur ? "cur" : ""} ${m.played ? "played" : ""}`} key={m.id}>
+              <span className="gfix-t"><Avatar emoji={home?.emoji} color={home?.color} size={16} /><i>{abbr(home?.teamName)}</i></span>
+              <span className="gfix-s">{r ? `${r.homeGoals}-${r.awayGoals}` : isCur ? "▶" : "·"}</span>
+              <span className="gfix-t r"><i>{abbr(away?.teamName)}</i><Avatar emoji={away?.emoji} color={away?.color} size={16} /></span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
