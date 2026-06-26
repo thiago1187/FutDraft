@@ -73,7 +73,7 @@ export function createLiveMatch(home, away, opts = {}) {
     penaltyPending: null, // pênalti EM JOGO aguardando cobrança (resolvido pela UI); { att, def, taker, picks, deadline, animating, lastKick, id }
     stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0] },
     ready: { home: !!cpu.home, away: !!cpu.away },
-    started: false, // só começa quando todos os técnicos confirmarem (ready-gate)
+    started: !!(cpu.home && cpu.away), // bot×bot começa na hora; senão espera o ready-gate
     preReady: { home: !!cpu.home, away: !!cpu.away }, // CPU já entra pronta
     momentum: 0,
     xg: [0, 0],

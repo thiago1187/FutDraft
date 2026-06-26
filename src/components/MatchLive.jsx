@@ -106,6 +106,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       lastTs.current = ts;
       const e = engineRef.current;
       if (e && !e.state.paused) e.step(Math.min(dt, 60), speedRef.current);
+      // rede de segurança: se os dois lados já estão prontos (ex.: bot×bot), começa.
+      if (e && !e.state.started && e.state.preReady?.home && e.state.preReady?.away) e.state.started = true;
       // pênalti EM JOGO recém-marcado → arma o prazo de 4s (fonte: state do motor)
       if (e?.state?.penaltyPending && e.state.penaltyPending.deadline === 0) {
         e.state.penaltyPending.deadline = Date.now() + IG_PEN_TIMER_MS;
