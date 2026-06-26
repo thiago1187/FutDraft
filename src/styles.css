@@ -1918,3 +1918,8 @@ body {
 .ml-pregame-st { font-family: var(--head); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .ml-pregame-row.ok .ml-pregame-st { color: var(--green); }
 .ml-pregame-card .btn { margin-top: 8px; }
+
+/* contador grande e visível na cobrança de pênalti (4s no jogo, 3s na disputa) */
+.pen-bigtimer { width: 58px; height: 58px; margin: 12px auto 2px; border-radius: 50%; border: 3px solid var(--gold); color: var(--gold); font-family: var(--display); font-size: 30px; line-height: 1; display: flex; align-items: center; justify-content: center; animation: pen-tick 0.85s ease-out; }
+.pen-bigtimer.urgent { border-color: var(--red); color: var(--red); }
+@keyframes pen-tick { 0% { transform: scale(1.4); opacity: 0.35; } 60% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }

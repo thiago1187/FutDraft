@@ -887,6 +887,9 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
     <div className="pen-overlay">
       <div className="pen-card">
         <span className={`pen-eyebrow ${inGame ? "ingame" : ""}`}>{inGame ? "⚽ Pênalti!" : "Disputa de pênaltis"}</span>
+        {choosing && remain != null && (
+          <div className={`pen-bigtimer ${remain <= 1 ? "urgent" : ""}`} key={"t" + remain}>{remain}</div>
+        )}
         {!inGame && (
           <div className="pen-score">
             <span className="pen-name">{homeName}</span>
