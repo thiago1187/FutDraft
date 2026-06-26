@@ -6,10 +6,6 @@ const FORMATS = [
   { id: "league", label: "Pontos corridos" },
   { id: "cup", label: "Copa" },
 ];
-const MODALITIES = [
-  { id: "pvp", label: "Técnicos ×", desc: "Os XI se enfrentam" },
-  { id: "cup", label: "Copa vs Seleções", desc: "Enfrente seleções reais" },
-];
 const DIFFICULTIES = [
   { id: "classic", label: "Clássico", desc: "Notas visíveis" },
   { id: "almanac", label: "De almanaque", desc: "Notas ocultas" },
@@ -81,7 +77,6 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
 
         {/* configurações — estilo 7a0 (opções visíveis) */}
         <div className="cfg">
-          <Seg label="Modalidade" options={MODALITIES} value={set.modality || "pvp"} isHost={isHost} onPick={(v) => pick({ modality: v })} />
           <Seg label="Formato" options={FORMATS} value={set.format || "knockout"} isHost={isHost} onPick={(v) => pick({ format: v })} />
           <Stepper
             label="Número de times"
