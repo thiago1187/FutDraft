@@ -196,6 +196,17 @@ async function openSupabaseRoom(code, { create = false, initialState = null, myU
     },
     updateMe(patch) {
       if (!uid) return Promise.resolve();
+      // Otimista: reflete na hora no estado local. Sem isso, o input controlado do
+      // editor reverte a cada tecla (espera o round-trip do Realtime) e as escolhas
+      // de bandeira/cor não destacam.
+      const local = {};
+      if (patch.team_name != null) local.teamName = patch.team_name;
+      if (patch.emoji != null) local.emoji = patch.emoji;
+      if (patch.color != null) local.color = patch.color;
+      if (Object.keys(local).length) {
+        players = players.map((p) => (p.id === uid ? { ...p, ...local } : p));
+        emit();
+      }
       return supabase.from("room_players").update(patch).eq("room_id", code).eq("user_id", uid);
     },
     async removePlayer(playerId) {
