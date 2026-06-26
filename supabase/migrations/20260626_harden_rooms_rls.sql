@@ -1,15 +1,9 @@
 -- ============================================================================
 -- A5 (PASSO FINAL) — Endurecer a RLS da tabela `rooms`.
 --
--- ⚠️ NÃO APLICAR AINDA. Aplique SOMENTE depois que a branch
---    `feat/supabase-migration` estiver MERGEADA na `main` e DEPLOYADA.
---
--- Motivo: hoje a `main` (em produção) ainda acessa a sala como um blob anônimo
--- (`rooms.state` via policy temporária "anon all"). Se trocarmos para
--- authenticated-only antes do deploy do front novo, a `main` quebra na hora.
---
--- Como aplicar (depois do merge+deploy): rode este SQL via
---   Supabase MCP apply_migration  OU  supabase db push  OU  o SQL editor.
+-- ✅ APLICADO em 2026-06-26 (migração `harden_rooms_rls`), após o merge da
+--    migração para a `main`. Removeu o acesso anônimo total e escopou as
+--    escritas ao anfitrião/membros. Mantido aqui como registro/source-of-truth.
 -- ============================================================================
 
 -- 1) Remove o acesso anônimo total (temporário) da `rooms`.
