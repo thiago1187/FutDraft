@@ -120,6 +120,7 @@ async function openSupabaseRoom(code, { create = false, initialState = null, myU
       tournament: st.tournament || null,
       presenting: st.presenting || null,
       tournamentToken: st.tournamentToken || null,
+      draftToken: st.draftToken || null,
     };
   }
   const emit = () => { const s = assemble(); stateCbs.forEach((cb) => cb(s)); };

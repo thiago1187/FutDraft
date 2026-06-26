@@ -347,7 +347,7 @@ export default function App() {
     if (!next || next === prev) return;
     if (next.phase !== prev.phase) r.setPhase(next.phase);
     const engine = {};
-    for (const k of ["draft", "tournament", "presenting", "tournamentToken"]) {
+    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken"]) {
       if (next[k] !== prev[k]) engine[k] = next[k] ?? null;
     }
     if (Object.keys(engine).length) r.setEngine(engine);
@@ -413,6 +413,8 @@ export default function App() {
     leave,
     startDraft() {
       const r = roomRef.current;
+      // token estável por instância de draft — chave para gravar draft_picks no Supabase
+      const draftToken = "d_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
       const buildDraft = (players, settings) => {
         const humans = players.filter((p) => !p.isBot);
         const mgr = {};
@@ -447,7 +449,7 @@ export default function App() {
         }
         // o draft só precisa dos humanos atuais; o torneio (no fim) usa os players da sala
         const draft = buildDraft(prev.players, prev.settings);
-        r.setEngine({ draft });
+        r.setEngine({ draft, draftToken });
         r.setPhase("draft");
         return;
       }
@@ -459,7 +461,7 @@ export default function App() {
         let guard = 0;
         while (players.length < target && guard < 32) { players.push(makeSquadBot(players)); guard++; }
         const draft = buildDraft(players, prev.settings);
-        return { ...prev, players, phase: "draft", draft };
+        return { ...prev, players, phase: "draft", draft, draftToken };
       });
     },
     // Envia uma intent de draft (aplica direto se for o controlador; senão, broadcast).
@@ -576,6 +578,7 @@ export default function App() {
         tournament: null,
         presenting: null,
         tournamentToken: null,
+        draftToken: null,
       }));
     },
   };
@@ -642,6 +645,40 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate?.tournament, gstate?.tournamentToken, gstate?.hostId, auth, room, myId]);
+
+  // A6/T6: espelha cada pick finalizado do draft em draft_picks (durável; o sorteio em
+  // curso segue no rooms.state). Só o anfitrião grava; dedupe por manager+slot.
+  const recordedPicksRef = useRef(new Set());
+  useEffect(() => {
+    if (!hasSupabase || !auth || !room || room.isLocal) return;
+    if (gstate?.hostId !== myId) return;
+    const d = gstate?.draft;
+    const token = gstate?.draftToken;
+    if (!d || !token || !d.mgr) return;
+    const findPlayer = (id) => {
+      for (const s of SQUADS) { const p = s.players.find((x) => x.id === id); if (p) return p; }
+      return null;
+    };
+    let order = recordedPicksRef.current.size;
+    for (const managerId of Object.keys(d.mgr)) {
+      const slots = d.mgr[managerId].slots || {};
+      for (const slotIdx of Object.keys(slots)) {
+        const playerId = slots[slotIdx];
+        if (!playerId) continue;
+        const key = token + ":" + managerId + ":" + slotIdx;
+        if (recordedPicksRef.current.has(key)) continue;
+        recordedPicksRef.current.add(key);
+        const pl = findPlayer(playerId);
+        history.recordDraftPick({
+          token, roomId: gstate.code, slot: Number(slotIdx),
+          userId: managerId, squadSlug: pl?.squadId || null,
+          playerId: pl?.personId || playerId, playerName: pl?.name || null,
+          position: pl?.detail || pl?.pos || null, pickOrder: order++,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstate?.draft, gstate?.draftToken, gstate?.hostId, auth, room, myId]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
