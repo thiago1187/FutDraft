@@ -173,7 +173,7 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
         <NextBar state={state} match={upcoming} players={players} roundName={roundName} isHost={isHost} actions={actions} />
       )}
 
-      {isCup && <GroupsSection t={t} players={players} current={upcoming} />}
+      {isCup && <GroupsSection t={t} players={players} current={upcoming} ovrById={ovrById} />}
 
       {showBracket && <BracketSection t={t} players={players} current={upcoming} ovrById={ovrById} isCup={isCup} />}
 
@@ -237,7 +237,7 @@ function NextBar({ state, match, players, roundName, isHost, actions }) {
 }
 
 // ---------- FASE DE GRUPOS ----------
-function GroupsSection({ t, players, current }) {
+function GroupsSection({ t, players, current, ovrById }) {
   const closed = t.phase === "knockout";
   return (
     <section className="tcup-section">
@@ -249,11 +249,25 @@ function GroupsSection({ t, players, current }) {
       </div>
       <div className="tcup-groups">
         {t.groups.map((g) => (
-          <GroupCardWC key={g.name} group={g} players={players} current={current} />
+          <GroupCardWC key={g.name} group={g} players={players} current={current} ovrById={ovrById} />
         ))}
       </div>
     </section>
   );
+}
+
+// Forma recente (últimos 5 jogos do grupo, em ordem cronológica): "W"/"D"/"L".
+function lastFive(group, teamId) {
+  const played = group.fixtures
+    .filter((f) => f.played && f.result && (f.homeId === teamId || f.awayId === teamId))
+    .sort((a, b) => a.round - b.round)
+    .slice(-5);
+  return played.map((f) => {
+    const home = f.homeId === teamId;
+    const gf = home ? f.result.homeGoals : f.result.awayGoals;
+    const ga = home ? f.result.awayGoals : f.result.homeGoals;
+    return gf > ga ? "W" : gf < ga ? "L" : "D";
+  });
 }
 
 function GroupCardWC({ group, players, current }) {
@@ -261,23 +275,42 @@ function GroupCardWC({ group, players, current }) {
   const someCurrent = group.fixtures.some((f) => current && f.id === current.id);
   return (
     <div className={`gcard ${someCurrent ? "active" : ""}`}>
-      <div className="gcard-head">
-        <span className="gcard-title">GRUPO {group.name}</span>
-        <span className="gcard-pts">PTS</span>
+      <div className="gcard-head"><span className="gcard-title">GRUPO {group.name}</span></div>
+      <div className="gtab">
+        <div className="gtab-head">
+          <span className="gt-pos">#</span>
+          <span className="gt-team">Equipe</span>
+          <span>Pts</span><span>J</span><span>V</span><span>E</span><span>D</span><span>GM</span><span>GC</span><span>SG</span>
+          <span className="gt-form">Últimas 5</span>
+        </div>
+        {table.map((row, i) => {
+          const p = players.find((pl) => pl.id === row.id);
+          const q = i < 2;
+          const form = lastFive(group, row.id);
+          return (
+            <div className={`gtab-row ${q ? "q" : ""}`} key={row.id}>
+              <span className="gt-pos">{i + 1}</span>
+              <span className="gt-team">
+                <Avatar emoji={p?.emoji} color={p?.color} size={20} />
+                <span className="gt-name">{p?.teamName || "—"}</span>
+              </span>
+              <span className="gt-pts">{row.Pts}</span>
+              <span>{row.P}</span>
+              <span>{row.W}</span>
+              <span>{row.D}</span>
+              <span>{row.L}</span>
+              <span>{row.GF}</span>
+              <span>{row.GA}</span>
+              <span className="gt-sg">{row.GD > 0 ? "+" + row.GD : row.GD}</span>
+              <span className="gt-form">
+                {Array.from({ length: 5 }).map((_, k) => (
+                  <i key={k} className={`gt-dot ${form[k] || "none"}`} />
+                ))}
+              </span>
+            </div>
+          );
+        })}
       </div>
-      {table.map((row, i) => {
-        const p = players.find((pl) => pl.id === row.id);
-        const q = i < 2;
-        return (
-          <div className={`gcard-row ${q ? "q" : ""}`} key={row.id}>
-            <span className="gcard-rank">{i + 1}</span>
-            <span className="gcard-crest"><Avatar emoji={p?.emoji} color={p?.color} size={20} /></span>
-            <span className="gcard-name">{p?.teamName || "—"}</span>
-            <span className="gcard-sg">{row.GD > 0 ? "+" + row.GD : row.GD}</span>
-            <span className="gcard-ptsv">{row.Pts}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }

@@ -1869,23 +1869,38 @@ body {
 .tcup-hint { font-family: var(--body); font-style: italic; color: var(--mut); margin: -28px 0 40px; }
 
 /* grupos */
-.tcup-groups { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.tcup-groups { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .gcard { background: var(--paper); border: 1px solid #e0d6bc; border-radius: 12px; overflow: hidden; }
 .gcard.active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 .gcard-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 13px; background: var(--ink); }
 .gcard-title { font-family: var(--display); font-size: 15px; letter-spacing: 0.5px; color: #f3ecd8; }
-.gcard-pts { font-family: var(--head); font-size: 9.5px; letter-spacing: 1.4px; color: var(--gd); }
-.gcard-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 0; border-bottom: 1px solid #efe8d5; border-left: 3px solid transparent; }
-.gcard-row:last-child { border-bottom: none; }
-.gcard-row.q { border-left-color: var(--gold); }
-.gcard-rank { width: 18px; text-align: center; font-family: var(--head); font-weight: 600; font-size: 11px; color: #a7a089; flex: 0 0 auto; }
-.gcard-row.q .gcard-rank { color: var(--ink); }
-.gcard-crest { flex: 0 0 auto; display: flex; }
-.gcard-name { flex: 1 1 auto; min-width: 0; font-family: var(--arch); font-size: 12.5px; font-weight: 400; color: #8a8475; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gcard-row.q .gcard-name { color: var(--ink); font-weight: 600; }
-.gcard-sg { font-family: var(--head); font-size: 10px; color: #a7a089; flex: 0 0 auto; }
-.gcard-ptsv { width: 24px; text-align: right; font-family: var(--display); font-size: 14px; color: #a7a089; flex: 0 0 auto; }
-.gcard-row.q .gcard-ptsv { color: var(--ink); }
+/* tabela completa do grupo (Pts · J · V · E · D · GM · GC · SG · Últimas 5) */
+.gtab { font-family: var(--arch); }
+.gtab-head, .gtab-row {
+  display: grid;
+  grid-template-columns: 22px minmax(90px, 1fr) 30px 22px 22px 22px 22px 26px 26px 30px 84px;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 11.5px;
+}
+.gtab-head { background: var(--cream); color: var(--mut2); font-family: var(--head); font-weight: 600; font-size: 9.5px; letter-spacing: 0.04em; text-transform: uppercase; }
+.gtab-row { border-top: 1px solid #efe8d5; color: #8a8475; }
+.gtab-row.q { background: rgba(199, 162, 58, 0.09); box-shadow: inset 3px 0 0 var(--gold); }
+.gtab-head span, .gtab-row span { text-align: center; }
+.gt-pos { font-family: var(--head); font-weight: 600; color: #a7a089; }
+.gtab-row.q .gt-pos { color: var(--ink); }
+.gt-team { display: flex; align-items: center; gap: 7px; text-align: left !important; min-width: 0; }
+.gt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: #8a8475; }
+.gtab-row.q .gt-name { color: var(--ink); font-weight: 600; }
+.gt-pts { font-family: var(--display); font-size: 14px; color: #a7a089; }
+.gtab-row.q .gt-pts { color: var(--ink); }
+.gt-sg { font-weight: 600; }
+.gt-form { display: inline-flex; align-items: center; gap: 3px; justify-content: flex-end; }
+.gt-dot { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; }
+.gt-dot.W { background: var(--green); }
+.gt-dot.D { background: #b9b29c; }
+.gt-dot.L { background: var(--rd); }
+.gt-dot.none { background: transparent; border: 1.5px solid #d8cfb4; }
 
 /* bracket (Copa do Mundo) */
 .bwc { position: relative; display: flex; gap: 22px; min-height: 460px; overflow-x: auto; padding-bottom: 6px; }
@@ -1934,9 +1949,9 @@ body {
 .mwc.lg.live { background: #17150f; }
 .mwc.lg.live .mwc-name { color: #f7f2e4; }
 
-@media (max-width: 900px) {
+@media (max-width: 980px) {
   .tcup-title { font-size: 44px; }
-  .tcup-groups { grid-template-columns: repeat(2, 1fr); }
+  .tcup-groups { grid-template-columns: 1fr; }
   .tcup-stats { gap: 16px; }
 }
 
