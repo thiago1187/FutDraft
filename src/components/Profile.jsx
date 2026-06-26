@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Avatar, TEAM_EMOJIS, TEAM_COLORS } from "./bits.jsx";
+import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl } from "./bits.jsx";
 import { updateMyProfile } from "../lib/auth.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
@@ -95,7 +95,18 @@ function MyCard({ profile, onProfileChange, setNotice }) {
               placeholder="Nome do time"
               onChange={(e) => setTeamName(e.target.value)}
             />
-            <div className="profile-pick-label">Escudo</div>
+            <div className="profile-pick-label">Escudo · bandeiras</div>
+            <div className="profile-emoji-grid profile-flag-grid">
+              {TEAM_FLAGS.map((code) => {
+                const val = "fl:" + code;
+                return (
+                  <button key={code} className={"profile-emoji" + (emoji === val ? " is-on" : "")} onClick={() => setEmoji(val)}>
+                    <img className="profile-flag" src={flagUrl(code)} alt={code} loading="lazy" />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="profile-pick-label">Escudo · símbolos</div>
             <div className="profile-emoji-grid">
               {TEAM_EMOJIS.map((e) => (
                 <button key={e} className={"profile-emoji" + (e === emoji ? " is-on" : "")} onClick={() => setEmoji(e)}>{e}</button>

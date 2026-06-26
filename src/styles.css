@@ -2304,3 +2304,8 @@ body {
 .h2h-cell span { font-family: var(--head); font-size: 10px; text-transform: uppercase; color: var(--muted2); }
 .friend-remove { color: var(--red); }
 .profile-notice { margin-top: 14px; background: #fff4ec; border: 1.5px solid var(--red); color: var(--red-dark); border-radius: 10px; padding: 9px 13px; font-size: 13px; }
+
+/* perfil: grade de bandeiras (rolável) + imagem da bandeira no botão */
+.profile-flag-grid { max-height: 168px; overflow-y: auto; padding-right: 2px; }
+.profile-emoji .profile-flag { width: 82%; height: 82%; object-fit: cover; border-radius: 4px; display: block; }
+.profile-emoji:has(.profile-flag) { padding: 3px; }
