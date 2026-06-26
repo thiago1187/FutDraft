@@ -71,6 +71,19 @@ function applyDraftIntent(prev, intent, players, settings) {
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+// Traduz erros técnicos (RLS/permissão do Postgres) para algo legível ao jogador.
+function friendlyError(e, fallback) {
+  const msg = String(e?.message || "").toLowerCase();
+  if (e?.code === "42501" || msg.includes("row-level security") || msg.includes("permission")) {
+    return "Sem permissão para essa ação (você precisa estar logado e ser membro da sala).";
+  }
+  if (e?.code === "not_found" || msg.includes("not_found")) return "Sala não encontrada. Confira o código.";
+  if (msg.includes("timeout") || msg.includes("conexão") || msg.includes("network")) {
+    return "Falha de conexão. Verifique a internet e tente de novo.";
+  }
+  return fallback + (e?.message ? ` (${e.message})` : "");
+}
+
 function genCode() {
   let c = "";
   for (let i = 0; i < 4; i++) c += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
@@ -243,7 +256,7 @@ export default function App() {
       });
       attach(r, name);
     } catch (e) {
-      setError("Não foi possível criar a sala. " + (e?.message || ""));
+      setError(friendlyError(e, "Não foi possível criar a sala."));
     } finally {
       setConnecting(false);
     }
@@ -269,8 +282,7 @@ export default function App() {
       }
       attach(r, name);
     } catch (e) {
-      if (e?.code === "not_found") setError("Sala não encontrada. Confira o código.");
-      else setError("Não foi possível entrar. " + (e?.message || ""));
+      setError(friendlyError(e, "Não foi possível entrar."));
     } finally {
       setConnecting(false);
     }

@@ -46,6 +46,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const rafRef = useRef(0);
   const lastTs = useRef(0);
   const lastSnap = useRef(0);
+  const lastRender = useRef(0);
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
   const penResultRef = useRef(null);
@@ -104,6 +105,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       if (event === "cmd" && engineRef.current) applyCommand(data);
     });
     const loop = (ts) => {
+      // partida acabou (mata-mata finalizado OU tela de fim da liga) → para o loop
+      // (antes ficava rodando step()+setTick a 60fps na tela de fim, gastando CPU).
+      if (finishedRef.current || endResultRef.current) return;
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
@@ -127,8 +131,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         if (match.knockout) finalize(res);
         else { endResultRef.current = res; setEnded(true); }
       }
-      setTick((n) => (n + 1) % 1000000);
-      rafRef.current = requestAnimationFrame(loop);
+      // throttle do re-render a ~30fps (o motor segue avançando a cada frame; só a
+      // renderização React é limitada — corta pela metade o custo no mobile).
+      if (ts - lastRender.current > 33) { lastRender.current = ts; setTick((n) => (n + 1) % 1000000); }
+      if (!finishedRef.current && !endResultRef.current) rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     // anti-AFK: se alguém não confirmar "Pronto" em 30s, começa mesmo assim.
