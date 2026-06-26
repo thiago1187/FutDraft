@@ -209,7 +209,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
     const pGoal = Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw));
     const scored = Math.random() < pGoal;
-    pp.lastKick = { aim: pp.picks.aim, scored, gkDir: pp.picks.gk, side: pp.att, id: pp.id };
+    // desfecho COERENTE com a animação: gol / defesa (goleiro acertou o canto) / pra fora
+    // (goleiro foi pro lado errado e o batedor errou — a bola sai, não é "defesa").
+    const outcome = scored ? "goal" : matched ? "save" : "miss";
+    pp.lastKick = { aim: pp.picks.aim, scored, gkDir: pp.picks.gk, outcome, side: pp.att, id: pp.id };
     pp.animating = true;
     setTick((n) => n + 1);
   }
@@ -231,7 +234,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   function igPenCommit() {
     const pp = engineRef.current?.state?.penaltyPending;
     if (!pp || !pp.lastKick) return;
-    engineRef.current.resolvePenalty(pp.lastKick.scored, pp.lastKick.aim, pp.lastKick.gkDir);
+    engineRef.current.resolvePenalty(pp.lastKick.scored, pp.lastKick.aim, pp.lastKick.gkDir, pp.lastKick.outcome);
     setTick((n) => n + 1);
   }
 
@@ -676,7 +679,7 @@ function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
     else if (cine.outcome === "post") { big = "NA TRAVE!"; cls = "post"; }
     else { big = "PRA FORA!"; cls = "miss"; }
   } else if (cine.type === "penalty") {
-    big = cine.outcome === "goal" ? "GOL DE PÊNALTI!" : "PÊNALTI DEFENDIDO!";
+    big = cine.outcome === "goal" ? "GOL DE PÊNALTI!" : cine.outcome === "miss" ? "PÊNALTI PRA FORA!" : "PÊNALTI DEFENDIDO!";
     sub = cine.shooter; cls = cine.outcome === "goal" ? "goal" : "save";
   } else if (cine.type === "yellow") { big = "CARTÃO AMARELO"; sub = cine.name; cls = "yellow"; }
   else if (cine.type === "red") { big = "CARTÃO VERMELHO"; sub = /amarelo/i.test(cine.reason || "") ? `${cine.name} · 2º amarelo` : cine.name; cls = "red"; }
@@ -863,7 +866,13 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
   const shooting = pens.turn;
   const goalie = shooting === "home" ? "away" : "home";
   const shooterColor = shooting === "home" ? homeColor : awayColor;
-  const target = lk ? AIM_POS[lk.aim] : AIM_POS.meio;
+  // desfecho (gol/defesa/fora). Fallback p/ a disputa (sem outcome): scored? gol : defesa.
+  const outcome = lk?.outcome || (lk ? (lk.scored ? "goal" : "save") : "goal");
+  // se foi PRA FORA, a bola sai do gol (lado/alto); senão vai pro canto mirado.
+  const target = !lk ? AIM_POS.meio
+    : outcome === "miss"
+      ? { x: lk.aim === "cantoE" ? 3 : lk.aim === "cantoD" ? 97 : 50, y: lk.aim === "meio" ? 2 : 6 }
+      : AIM_POS[lk.aim];
   const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
   const animating = pens.animating && phase !== "idle";
   const showResult = phase === "result" && lk;
@@ -927,7 +936,7 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
           </div>
           {/* etiqueta */}
           {showResult ? (
-            <div className={`pen-flash ${lk.scored ? "goal" : "save"}`}>{lk.scored ? "GOL!" : "DEFENDEU!"}</div>
+            <div className={`pen-flash ${outcome === "goal" ? "goal" : "save"}`}>{outcome === "goal" ? "GOL!" : outcome === "save" ? "DEFENDEU!" : "PRA FORA!"}</div>
           ) : choosing ? (
             <div className="pen-shooting">Cobrando: <b style={{ color: shooterColor }}>{shootingTeamName}</b>{remain != null && <span className="pen-countdown">{remain}s</span>}</div>
           ) : (

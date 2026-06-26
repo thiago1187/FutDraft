@@ -416,10 +416,11 @@ export function createLiveMatch(home, away, opts = {}) {
   // Resolve o pênalti em jogo a partir das escolhas (aim = canto do cobrador,
   // gkDir = mergulho do goleiro). scored = o goleiro NÃO acertou o canto. Aplica
   // gol/erro, cria a cinemática de pênalti e LIBERA o relógio (zera penaltyPending).
-  function resolvePenalty(scored, aim, gkDir) {
+  function resolvePenalty(scored, aim, gkDir, outcome) {
     const pp = state.penaltyPending;
     if (!pp) return false;
     const { att, taker } = pp;
+    const out = outcome || (scored ? "goal" : "save"); // goal | save | miss
     const aimY = aim === "cantoE" ? 32 : aim === "cantoD" ? 68 : 50;
     const dir = gkDir === "cantoE" ? -1 : gkDir === "cantoD" ? 1 : 0;
     if (scored) {
@@ -428,7 +429,7 @@ export function createLiveMatch(home, away, opts = {}) {
     } else {
       emit("save", att, { pen: true });
     }
-    setCinematic({ type: "penalty", side: att, shooter: taker.name, aimY, gkDir: dir, outcome: scored ? "goal" : "save", holdMs: scored ? 2400 : 2000 });
+    setCinematic({ type: "penalty", side: att, shooter: taker.name, aimY, gkDir: dir, outcome: out, holdMs: scored ? 2400 : 2000 });
     state.possession = other(att);
     state.carrier = null; state.pass = null;
     state.penaltyPending = null;
@@ -468,14 +469,21 @@ export function createLiveMatch(home, away, opts = {}) {
     for (const side of ["home", "away"]) {
       const pi = idx(side);
       const lam = state.lam[side];
-      if (rnd() < clamp(0.06 + lam * 0.035, 0.02, 0.25)) { // ~9-12 chutes/time/jogo
+      const t = state.tactics[side];
+      // ESTILO afeta a FREQUÊNCIA de finalização de forma visível (impressão digital, §6):
+      // ataque total chuta MUITO mais (porém com xG menor por chute); retranca chuta
+      // menos e melhor; jogo direto e pressão também elevam o volume.
+      const post = t.posture === "ofensivo" ? 1.42 : t.posture === "defensivo" ? 0.66 : 1.0;
+      const shotMult = post * (0.9 + (t.build ?? 0.4) * 0.3) * (t.marking === "pressao" ? 1.07 : 1);
+      const xgPerShot = t.posture === "ofensivo" ? 0.82 : t.posture === "defensivo" ? 1.18 : 1;
+      if (rnd() < clamp((0.05 + lam * 0.04) * shotMult, 0.02, 0.34)) {
         state.stats.shots[pi]++;
         const on = rnd() < 0.36; // ~36% no alvo (além dos gols)
         if (on) state.stats.onTarget[pi]++;
-        state.xg[pi] += on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03; // qualidade da chance → xG
+        state.xg[pi] += (on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03) * xgPerShot; // chance → xG
         logXg();
       }
-      if (rnd() < clamp(0.035 + lam * 0.02, 0.01, 0.11)) state.stats.corners[pi]++; // ~4-6/time/jogo
+      if (rnd() < clamp((0.03 + lam * 0.022) * post, 0.01, 0.13)) state.stats.corners[pi]++; // estilo move escanteios
     }
     // pênalti EM JOGO (raro, ~0.25/jogo) — proporcional ao ataque; PAUSA o jogo p/ a
     // cobrança (mini-tela). Preempta o gol do minuto.
