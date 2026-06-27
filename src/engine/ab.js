@@ -9,6 +9,7 @@ import { computeLambdas } from "./rates.js";
 import { winProb } from "./winprob.js";
 import { createLiveMatch, penaltyScored } from "./liveMatch.js";
 import { findFormation } from "./formations.js";
+import { mulberry32 } from "./rng.js";
 
 const SLOTS = [
   ["GOL", "GK"], ["LE", "DEF"], ["ZAG", "DEF"], ["ZAG", "DEF"], ["LD", "DEF"],
@@ -40,6 +41,33 @@ export function lambdas(homeTok, awayTok, tH = {}, tA = {}) {
 export function winPct(homeTok, awayTok, tH = {}, tA = {}) {
   const L = lambdas(homeTok, awayTok, tH, tA);
   return winProb(0, 0, L.home, L.away, 0, { knockout: true }).win;
+}
+
+// ----- §5: probabilidade ao vivo vs simulação Monte Carlo -----
+function poissonR(lambda, rng) {
+  const L = Math.exp(-lambda);
+  let k = 0, p = 1;
+  do { k++; p *= rng(); } while (p > L);
+  return k - 1;
+}
+// Frequência de VITÓRIA do mandante simulando N finais a partir de um estado
+// (placar a-b, minuto, λ/90). Mesmo modelo da winProb (Poisson do tempo restante;
+// mata-mata divide o empate 50/50) → a frequência tem que casar com a P exibida.
+export function simWinFreq(a, b, lamH, lamA, minute, knockout, N, seed = 12345) {
+  const rng = mulberry32(seed);
+  const tau = Math.max(0, 90 - minute) / 90;
+  const muH = lamH * tau, muA = lamA * tau;
+  let win = 0;
+  for (let i = 0; i < N; i++) {
+    const fh = a + poissonR(muH, rng), fa = b + poissonR(muA, rng);
+    if (fh > fa) win++;
+    else if (fh === fa && knockout && rng() < 0.5) win++; // pênaltis 50/50
+  }
+  return win / N;
+}
+// P exibida (analítica) de vitória do mandante para o mesmo estado.
+export function pWin(a, b, lamH, lamA, minute, knockout) {
+  return winProb(a, b, lamH, lamA, minute, { knockout }).win;
 }
 
 function liveTeam(ovr, boost) {

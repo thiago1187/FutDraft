@@ -198,7 +198,7 @@ function calibTactics() {
 }
 
 // ========== 4) A/B de funcionalidade (Prompt 2) — `--ab` ==========
-import { lambdas, winPct, liveAB, tokens } from "./ab.js";
+import { lambdas, winPct, liveAB, tokens, pWin, simWinFreq } from "./ab.js";
 
 function abLine(name, metric, A, B, dir, sig) {
   const d = B - A, ok = sig && (dir === 0 || Math.sign(d) === Math.sign(dir));
@@ -263,6 +263,32 @@ function calibAB() {
     const mono = w0 < w5 && w5 < w10;
     console.log(`  [${mono ? "OK" : "DIR✗"}] win% monotônico com over    +0=${(w0 * 100).toFixed(1)}%  +5=${(w5 * 100).toFixed(1)}%  +10=${(w10 * 100).toFixed(1)}%`);
     pass &= mono;
+  }
+
+  console.log("\n§5 PROBABILIDADE AO VIVO vs SIMULAÇÃO (100k finais/estado, erro < 1pp):");
+  {
+    const SEED = 987654321;
+    const states = [
+      ["0-0 min0  λ1.4/1.4 (igual)", 0, 0, 1.4, 1.4, 0],
+      ["1-0 min60 λ1.4/1.4 (lidera)", 1, 0, 1.4, 1.4, 60],
+      ["0-1 min80 λ1.4/1.4 (atrás/fim)", 0, 1, 1.4, 1.4, 80],
+      ["0-0 min0  λ2.0/1.0 (favorito)", 0, 0, 2.0, 1.0, 0],
+      ["1-1 min45 λ0.9/1.5 (10 homens)", 1, 1, 0.9, 1.5, 45],
+    ];
+    for (const [name, a, b, lh, la, m] of states) {
+      const p = pWin(a, b, lh, la, m, true), f = simWinFreq(a, b, lh, la, m, true, 100000, SEED);
+      const err = Math.abs(p - f), ok = err < 0.01;
+      console.log(`  [${ok ? "OK" : "ERRO"}] ${name.padEnd(32)} P=${(p * 100).toFixed(2)}%  freq=${(f * 100).toFixed(2)}%  erro=${(err * 100).toFixed(2)}pp`);
+      pass &= ok;
+    }
+    const r1 = pWin(1, 0, 1.4, 1.4, 30, true) > pWin(0, 0, 1.4, 1.4, 30, true);   // gol sobe a P
+    const r2 = pWin(0, 0, 1.0, 1.4, 30, true) < pWin(0, 0, 1.4, 1.4, 30, true);   // −λ (expulsão) desce
+    const r3 = pWin(1, 0, 1.4, 1.4, 80, true) > pWin(1, 0, 1.4, 1.4, 40, true);   // relógio empurra o líder
+    const r4 = Math.abs(pWin(0, 0, 1.4, 1.4, 0, true) - 0.5) < 1e-9;              // sem mando (igual = 50%)
+    const w = winProb(1, 1, 1.3, 1.1, 70, { knockout: false });
+    const r5 = Math.abs(w.win + w.draw + w.loss - 1) < 1e-12;                     // P soma 1
+    console.log(`  reatividade: [${r1 ? "OK" : "✗"}] gol↑P  [${r2 ? "OK" : "✗"}] expulsão↓P  [${r3 ? "OK" : "✗"}] relógio→líder  [${r4 ? "OK" : "✗"}] sem mando 50%  [${r5 ? "OK" : "✗"}] ΣP=1`);
+    pass &= r1 && r2 && r3 && r4 && r5;
   }
   return !!pass;
 }
