@@ -138,28 +138,127 @@ function MyCard({ profile, onProfileChange, setNotice }) {
   );
 }
 
-// ---------- Estatísticas ----------
+// ---------- Estatísticas (Desempenho) ----------
 function StatsRow({ stats }) {
   const s = stats || {};
-  const gf = s.goals_for ?? 0, ga = s.goals_against ?? 0;
-  const items = [
-    ["Jogos", s.matches_played ?? 0],
-    ["Vitórias", s.wins ?? 0],
-    ["Empates", s.draws ?? 0],
-    ["Derrotas", s.losses ?? 0],
-    ["Gols pró", gf],
-    ["Gols contra", ga],
-    ["Saldo", (gf - ga > 0 ? "+" : "") + (gf - ga)],
-    ["Títulos", s.titles ?? 0],
-  ];
+  const jogos = s.matches_played ?? 0;
+  const vitorias = s.wins ?? 0;
+  const empates = s.draws ?? 0;
+  const derrotas = s.losses ?? 0;
+  const golsPro = s.goals_for ?? 0;
+  const golsContra = s.goals_against ?? 0;
+  const titulos = s.titles ?? 0;
+
+  const saldo = golsPro - golsContra;
+  const pontos = vitorias * 3 + empates;
+  const pontosMax = jogos * 3;
+  const aproveitamento = pontosMax > 0 ? Math.round((pontos / pontosMax) * 100) : 0;
+
+  const R = 62, CIRC = 2 * Math.PI * R;
+  const ringOffset = CIRC * (1 - aproveitamento / 100);
+
+  const pct = (n) => (jogos > 0 ? (n / jogos) * 100 : 0);
+  const maxGols = Math.max(golsPro, golsContra, 1);
+  const proBar = (golsPro / maxGols) * 100;
+  const contraBar = (golsContra / maxGols) * 100;
+  const mediaPro = jogos > 0 ? (golsPro / jogos).toFixed(1) : "0.0";
+  const mediaContra = jogos > 0 ? (golsContra / jogos).toFixed(1) : "0.0";
+
+  const saldoColor = saldo > 0 ? "var(--green)" : saldo < 0 ? "var(--red)" : "var(--ink)";
+  const saldoArrow = saldo > 0 ? "▲" : saldo < 0 ? "▼" : "—";
+  const tituloLabel = titulos === 1 ? "Título conquistado" : "Títulos conquistados";
+
   return (
-    <div className="profile-stats">
-      {items.map(([label, val]) => (
-        <div className="profile-stat" key={label}>
-          <div className="profile-stat-val">{val}</div>
-          <div className="profile-stat-label">{label}</div>
+    <div className="perf">
+      <div className="perf-head">
+        <h3 className="perf-title">Desempenho</h3>
+        <span className="perf-tag">Geral</span>
+        <div className="perf-rule" />
+      </div>
+
+      {/* card hero: medidor + campanha */}
+      <div className="perf-hero">
+        <div className="perf-gauge">
+          <div className="perf-gauge-ring">
+            <svg width="150" height="150" viewBox="0 0 150 150" className="perf-gauge-svg">
+              <circle cx="75" cy="75" r={R} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="13" />
+              <circle
+                cx="75" cy="75" r={R} fill="none" stroke="var(--gold)" strokeWidth="13" strokeLinecap="round"
+                strokeDasharray={CIRC.toFixed(1)} strokeDashoffset={ringOffset.toFixed(1)}
+                style={{ "--circ": CIRC.toFixed(1) }}
+              />
+            </svg>
+            <div className="perf-gauge-val">{aproveitamento}<span>%</span></div>
+          </div>
+          <div className="perf-gauge-label">Aproveitamento</div>
+          <div className="perf-gauge-sub">{pontos} de {pontosMax} pontos</div>
         </div>
-      ))}
+
+        <div className="perf-campaign">
+          <div className="perf-campaign-head">
+            <span className="perf-cap">Campanha</span>
+            <span className="perf-games"><b>{jogos}</b> jogos</span>
+          </div>
+          <div className="perf-bar">
+            <div className="perf-bar-seg seg-v" style={{ width: pct(vitorias) + "%" }} />
+            <div className="perf-bar-seg seg-e" style={{ width: pct(empates) + "%" }} />
+            <div className="perf-bar-seg seg-d" style={{ width: pct(derrotas) + "%" }} />
+          </div>
+          <div className="perf-legend">
+            <div className="perf-leg leg-v">
+              <div className="perf-leg-top"><span className="perf-dot" /><span>Vitórias</span></div>
+              <div className="perf-leg-val">{vitorias}</div>
+            </div>
+            <div className="perf-leg leg-e">
+              <div className="perf-leg-top"><span className="perf-dot" /><span>Empates</span></div>
+              <div className="perf-leg-val">{empates}</div>
+            </div>
+            <div className="perf-leg leg-d">
+              <div className="perf-leg-top"><span className="perf-dot" /><span>Derrotas</span></div>
+              <div className="perf-leg-val">{derrotas}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* grade: gols + conquistas */}
+      <div className="perf-grid">
+        <div className="perf-goals">
+          <div className="perf-goals-head">
+            <span className="perf-cap">Gols</span>
+            <span className="perf-goals-avg">{mediaPro} marcados · {mediaContra} sofridos / jogo</span>
+          </div>
+          <div className="perf-goals-row">
+            <span className="perf-goals-tag tag-pro">Pró</span>
+            <div className="perf-goals-track"><div className="perf-goals-fill fill-pro" style={{ width: proBar + "%" }} /></div>
+            <span className="perf-goals-num num-pro">{golsPro}</span>
+          </div>
+          <div className="perf-goals-row">
+            <span className="perf-goals-tag tag-contra">Contra</span>
+            <div className="perf-goals-track"><div className="perf-goals-fill fill-contra" style={{ width: contraBar + "%" }} /></div>
+            <span className="perf-goals-num num-contra">{golsContra}</span>
+          </div>
+          <div className="perf-saldo">
+            <span className="perf-cap">Saldo de gols</span>
+            <span className="perf-saldo-val" style={{ color: saldoColor }}>{saldoArrow} {saldo}</span>
+          </div>
+        </div>
+
+        <div className="perf-titles">
+          <div className="perf-titles-head">
+            <span className="perf-cap perf-cap-light">Conquistas</span>
+            <span className="perf-trophy">🏆</span>
+          </div>
+          <div className="perf-titles-mid">
+            <div className="perf-titles-num">{titulos}</div>
+            <div className="perf-titles-label">{tituloLabel}</div>
+          </div>
+          <div className="perf-titles-chips">
+            <div className="perf-chip"><div className="perf-chip-val">{jogos}</div><div className="perf-chip-label">Jogos</div></div>
+            <div className="perf-chip"><div className="perf-chip-val">{pontos}</div><div className="perf-chip-label">Pontos</div></div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
