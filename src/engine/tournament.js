@@ -233,9 +233,20 @@ function koStageLabel(t, e) {
   return roundLabel(n); // Semifinal, Quartas de final, Oitavas…
 }
 
+// Gols marcados por um time em TODO o campeonato (desempate entre eliminados na mesma fase).
+function goalsFor(t, teamId) {
+  let g = 0;
+  for (const m of allMatches(t)) {
+    if (m.isBye || !m.played || !m.result) continue;
+    if (m.homeId === teamId) g += m.result.homeGoals || 0;
+    else if (m.awayId === teamId) g += m.result.awayGoals || 0;
+  }
+  return g;
+}
+
 // Classificação FINAL do campeonato (ambos os formatos) para a tela de campeão.
-// League: ordem da tabela (pts/SG/GP). Mata-mata: posição pela rodada de eliminação
-// (quem cai mais tarde fica melhor; eliminados na mesma fase empatam na posição).
+// League: ordem da tabela. Mata-mata: posições DISTINTAS — quem cai mais tarde fica melhor;
+// na MESMA fase, quem marcou mais gols fica na frente (3º = mais gols na semi, 4º = menos).
 export function finalStandings(t, players) {
   if (!t) return [];
   // COPA: classificação no mata-mata (quem passou) + eliminados na fase de grupos abaixo.
@@ -248,13 +259,11 @@ export function finalStandings(t, players) {
       const loser = m.result.winner === "home" ? m.awayId : m.homeId;
       if (loser) elim[loser] = r;
     }
-    const koArr = [...koIds].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1) }));
-    koArr.sort((a, b) => b.e - a.e);
+    const koArr = [...koIds].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1), g: goalsFor(t, id) }));
+    koArr.sort((a, b) => b.e - a.e || b.g - a.g); // fase mais tarde primeiro; empate → mais gols
     const out = [];
-    let pos = 1;
     for (let i = 0; i < koArr.length; i++) {
-      if (i > 0 && koArr[i].e !== koArr[i - 1].e) pos = i + 1;
-      out.push({ id: koArr[i].id, pos, detail: koStageLabel(t, koArr[i].e), sub: null });
+      out.push({ id: koArr[i].id, pos: i + 1, detail: koStageLabel(t, koArr[i].e), sub: null });
     }
     const grp = [];
     for (const g of t.groups) for (const r of standingsFrom(g.ids, g.fixtures)) if (!koIds.has(r.id)) grp.push(r);
@@ -283,13 +292,11 @@ export function finalStandings(t, players) {
   }
   const ids = new Set();
   for (const r of t.rounds) for (const m of r) { if (m.homeId) ids.add(m.homeId); if (m.awayId) ids.add(m.awayId); }
-  const arr = [...ids].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1) }));
-  arr.sort((a, b) => b.e - a.e);
+  const arr = [...ids].map((id) => ({ id, e: id === t.champion ? Infinity : (elim[id] ?? -1), g: goalsFor(t, id) }));
+  arr.sort((a, b) => b.e - a.e || b.g - a.g); // fase mais tarde primeiro; empate → mais gols
   const out = [];
-  let pos = 1;
   for (let i = 0; i < arr.length; i++) {
-    if (i > 0 && arr[i].e !== arr[i - 1].e) pos = i + 1; // nova fase → nova posição
-    out.push({ id: arr[i].id, pos, detail: koStageLabel(t, arr[i].e), sub: null });
+    out.push({ id: arr[i].id, pos: i + 1, detail: koStageLabel(t, arr[i].e), sub: null });
   }
   return out;
 }

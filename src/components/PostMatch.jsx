@@ -1,4 +1,5 @@
 import { escudoImg } from "./bits.jsx";
+import AddFriendButton from "./AddFriendButton.jsx";
 
 // Pós-jogo (§7): súmula completa + corrida de xG + história por templates + notas e craque.
 // Recebe `summary` (motor) e mostra tudo o que saiu do MESMO fluxo de eventos.
@@ -59,7 +60,9 @@ function NotesCol({ title, color, players }) {
   );
 }
 
-export default function PostMatch({ summary, homeMgr, awayMgr, canFinish, onContinue, onLeave }) {
+export default function PostMatch({ summary, homeMgr, awayMgr, myId, canFinish, onContinue, onLeave }) {
+  // adversário humano (pra oferecer adicionar como amigo no fim do jogo)
+  const opp = [homeMgr, awayMgr].find((m) => m && !m.isBot && m.id !== myId);
   const s = summary;
   const hc = s.colors?.home || homeMgr?.color || "#E94E27";
   const ac = s.colors?.away || awayMgr?.color || "#2B5BA8";
@@ -131,6 +134,9 @@ export default function PostMatch({ summary, homeMgr, awayMgr, canFinish, onCont
 
         {/* AÇÕES */}
         <div className="pm-actions">
+          {opp && (
+            <AddFriendButton myId={myId} targetId={opp.id} targetName={opp.teamName} className="pm-add-friend" />
+          )}
           {canFinish ? (
             <button className="btn btn-primary btn-block btn-lg" onClick={onContinue}>Continuar →</button>
           ) : (

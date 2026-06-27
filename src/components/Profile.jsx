@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Avatar, TEAM_EMOJIS, TEAM_COLORS } from "./bits.jsx";
+import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl } from "./bits.jsx";
 import { updateMyProfile } from "../lib/auth.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
@@ -57,11 +57,15 @@ function MyCard({ profile, onProfileChange, setNotice }) {
   const [color, setColor] = useState(profile?.color || TEAM_COLORS[0]);
   const [saving, setSaving] = useState(false);
 
+  // Inicializa os campos AO ABRIR o editor — não a cada mudança de `profile`, senão
+  // uma atualização de `profile` (ex.: refresh de sessão) apagaria o que você digita.
   useEffect(() => {
+    if (!editing) return;
     setTeamName(profile?.team_name || "");
     setEmoji(profile?.emoji || TEAM_EMOJIS[0]);
     setColor(profile?.color || TEAM_COLORS[0]);
-  }, [profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
 
   async function save() {
     setSaving(true);
@@ -95,7 +99,18 @@ function MyCard({ profile, onProfileChange, setNotice }) {
               placeholder="Nome do time"
               onChange={(e) => setTeamName(e.target.value)}
             />
-            <div className="profile-pick-label">Escudo</div>
+            <div className="profile-pick-label">Escudo · bandeiras</div>
+            <div className="profile-emoji-grid profile-flag-grid">
+              {TEAM_FLAGS.map((code) => {
+                const val = "fl:" + code;
+                return (
+                  <button key={code} className={"profile-emoji" + (emoji === val ? " is-on" : "")} onClick={() => setEmoji(val)}>
+                    <img className="profile-flag" src={flagUrl(code)} alt={code} loading="lazy" />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="profile-pick-label">Escudo · símbolos</div>
             <div className="profile-emoji-grid">
               {TEAM_EMOJIS.map((e) => (
                 <button key={e} className={"profile-emoji" + (e === emoji ? " is-on" : "")} onClick={() => setEmoji(e)}>{e}</button>

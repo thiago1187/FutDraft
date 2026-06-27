@@ -32,6 +32,7 @@ import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
+import { listFriendships } from "./lib/social.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -134,6 +135,7 @@ export default function App() {
   const [guest, setGuest] = useState(false);
   const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [incomingCount, setIncomingCount] = useState(0);
   const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
   const [gstate, setGstate] = useState(null);
@@ -167,13 +169,25 @@ export default function App() {
   }, []);
 
   // Carrega o meu profile (nome do time, escudo, cor) quando logo.
+  // Depende do UID, não do objeto `auth`: o Supabase emite um novo objeto de sessão a
+  // cada refresh de token/foco da aba, e refazer o fetch a cada evento trocava a
+  // referência de `profile` no meio da edição (apagava o que você digitava).
+  const authUid = auth?.user?.id || null;
   useEffect(() => {
-    const uid = auth?.user?.id;
-    if (!uid) { setProfile(null); return; }
+    if (!authUid) { setProfile(null); return; }
     let alive = true;
-    getProfile(uid).then((p) => alive && setProfile(p)).catch(() => {});
+    getProfile(authUid).then((p) => alive && setProfile(p)).catch(() => {});
     return () => { alive = false; };
-  }, [auth]);
+  }, [authUid]);
+
+  // Conta pedidos de amizade recebidos (badge no botão de perfil). Recarrega ao
+  // entrar/sair da tela de perfil (onde dá pra aceitar).
+  useEffect(() => {
+    if (!authUid) { setIncomingCount(0); return; }
+    let alive = true;
+    listFriendships(authUid).then((f) => alive && setIncomingCount(f.incoming.length)).catch(() => {});
+    return () => { alive = false; };
+  }, [authUid, showProfile]);
 
   useEffect(() => {
     roomRef.current = room;
@@ -743,6 +757,7 @@ export default function App() {
           account={auth ? profile : null}
           onSignOut={auth ? onSignOut : null}
           onOpenProfile={auth ? () => setShowProfile(true) : null}
+          incomingRequests={incomingCount}
         />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>

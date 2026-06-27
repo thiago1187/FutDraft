@@ -147,22 +147,110 @@ function Confetti() {
   );
 }
 
+// Boneco do pódio (SVG) — camisa na cor do time; campeão ergue a taça, medalhistas com medalha.
+function PodiumFigure({ color, variant }) {
+  if (variant === "champ") {
+    return (
+      <div className="pf-champ">
+        <div className="pf-trophy"><span className="pf-trophy-raise"><span className="pf-trophy-float">🏆</span></span></div>
+        <svg width="96" height="132" viewBox="0 0 84 120" fill="none">
+          <ellipse cx="35" cy="114" rx="9" ry="5.5" fill="#1C1A17" /><ellipse cx="49" cy="114" rx="9" ry="5.5" fill="#1C1A17" />
+          <rect x="31" y="84" width="9.5" height="29" rx="4.7" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" /><rect x="43.5" y="84" width="9.5" height="29" rx="4.7" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+          <path d="M25 70 h34 v8 q0 8 -8 8 h-5 v-6 h-3 v6 h-5 q-8 0 -8 -8 z" fill="#1B2A5B" stroke="#2A2218" strokeWidth="1.4" />
+          <path d="M31 46 L41 11" stroke="#2A2218" strokeWidth="12.5" strokeLinecap="round" /><path d="M57 46 L47 11" stroke="#2A2218" strokeWidth="12.5" strokeLinecap="round" />
+          <path d="M31 46 L41 11" stroke={color} strokeWidth="9.5" strokeLinecap="round" /><path d="M57 46 L47 11" stroke={color} strokeWidth="9.5" strokeLinecap="round" />
+          <circle cx="41" cy="10" r="5.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" /><circle cx="47" cy="10" r="5.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+          <rect x="24" y="40" width="40" height="44" rx="13" fill={color} stroke="#2A2218" strokeWidth="1.4" />
+          <rect x="38" y="33" width="12" height="9" fill="#E8B894" stroke="#2A2218" strokeWidth="1.2" />
+          <circle cx="44" cy="23" r="12.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+          <path d="M32 23 A12 12 0 0 1 56 23 C50 14, 38 14, 32 23 Z" fill="#3A2A1C" />
+          <circle cx="40" cy="24" r="1.5" fill="#2A2218" /><circle cx="48" cy="24" r="1.5" fill="#2A2218" />
+          <path d="M40 28 Q44 31 48 28" stroke="#2A2218" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+        </svg>
+      </div>
+    );
+  }
+  const m = variant === "silver"
+    ? { ribbon: "#5E6B86", disc: "#D8DCE3", ring: "#9097A1" }
+    : { ribbon: "#8A6A4A", disc: "#DCA471", ring: "#A06C3A" };
+  return (
+    <svg className="pf-medal" width="78" height="120" viewBox="0 0 80 120" fill="none">
+      <ellipse cx="34" cy="114" rx="8.5" ry="5" fill="#1C1A17" /><ellipse cx="46" cy="114" rx="8.5" ry="5" fill="#1C1A17" />
+      <rect x="30" y="84" width="9" height="28" rx="4.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" /><rect x="41" y="84" width="9" height="28" rx="4.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+      <path d="M24 70 h32 v8 q0 8 -8 8 h-4 v-6 h-4 v6 h-4 q-8 0 -8 -8 z" fill="#1E3FA0" stroke="#2A2218" strokeWidth="1.4" />
+      <rect x="14" y="42" width="9" height="32" rx="4.5" fill={color} stroke="#2A2218" strokeWidth="1.4" /><circle cx="18.5" cy="77" r="5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+      <rect x="57" y="42" width="9" height="32" rx="4.5" fill={color} stroke="#2A2218" strokeWidth="1.4" /><circle cx="61.5" cy="77" r="5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+      <rect x="22" y="38" width="36" height="40" rx="12" fill={color} stroke="#2A2218" strokeWidth="1.4" />
+      <rect x="35" y="31" width="10" height="9" fill="#E8B894" stroke="#2A2218" strokeWidth="1.2" />
+      <circle cx="40" cy="21" r="12.5" fill="#E8B894" stroke="#2A2218" strokeWidth="1.4" />
+      <path d="M28 21 A12 12 0 0 1 52 21 C46 12, 34 12, 28 21 Z" fill="#3A2A1C" />
+      <circle cx="36" cy="22" r="1.4" fill="#2A2218" /><circle cx="44" cy="22" r="1.4" fill="#2A2218" />
+      <path d="M36 26 Q40 29 44 26" stroke="#2A2218" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+      <path d="M33 39 L40 58" stroke={m.ribbon} strokeWidth="3.2" /><path d="M47 39 L40 58" stroke={m.ribbon} strokeWidth="3.2" />
+      <circle cx="40" cy="62" r="7.5" fill={m.disc} stroke={m.ring} strokeWidth="1.6" /><circle cx="37.5" cy="59.5" r="2.5" fill="#fff" opacity="0.6" />
+    </svg>
+  );
+}
+
+function PodiumPlace({ place, player, label, rec }) {
+  if (!player) return <div className={`podium-col p${place} empty`} />;
+  const step = place === 1 ? "gold" : place === 2 ? "silver" : "bronze";
+  const variant = place === 1 ? "champ" : place === 2 ? "silver" : "bronze";
+  return (
+    <div className={`podium-col p${place}`}>
+      <div className="pc-head">
+        <div className={`pc-label ${step}`}>{label}</div>
+        <div className="pc-team">
+          <Avatar emoji={player.emoji} color={player.color} size={place === 1 ? 28 : 23} />
+          <span className="pc-name">{player.teamName}</span>
+        </div>
+        <div className="pc-mgr">Téc. {player.name}</div>
+        {place === 1 && rec && (
+          <div className="pc-chips">
+            <div className="pc-chip"><span>Final</span><b>{rec.W}V {rec.D}E {rec.L}D</b></div>
+            <div className="pc-chip"><span>Aproveitamento</span><b>{rec.apr}%</b></div>
+          </div>
+        )}
+      </div>
+      <div className="pc-figure"><PodiumFigure color={player.color || "#888"} variant={variant} /></div>
+      <div className={`pc-step ${step}`}><span className="pc-stepnum">{place}</span><span className="pc-shine" /></div>
+    </div>
+  );
+}
+
+function Podium({ standings, players, rec, isLeague }) {
+  const get = (pos) => {
+    const row = standings.find((s) => s.pos === pos);
+    return row ? players.find((p) => p.id === row.id) : null;
+  };
+  const third = get(3);
+  return (
+    <div className="podium-hero">
+      <Confetti />
+      <div className="ph-glow" aria-hidden />
+      <div className="ph-eyebrow">
+        <span className="ph-brand">Fim da Copa</span>
+        <span className="ph-season">Copa dos Amigos</span>
+      </div>
+      <div className="podium">
+        <PodiumPlace place={2} player={get(2)} label="Vice-campeão" />
+        <PodiumPlace place={1} player={get(1)} label="Campeão" rec={rec} />
+        <PodiumPlace place={3} player={third} label={isLeague ? "3º lugar" : "Semifinalista"} />
+      </div>
+    </div>
+  );
+}
+
 export default function Champion({ state, isHost, actions }) {
   const t = state.tournament;
   const players = state.players;
-  const champ = players.find((p) => p.id === t.champion);
   const scorers = topScorers(t);
   const top = scorers[0];
   const topTeam = top && players.find((p) => p.id === top.teamId);
-  const sevenNil = findSevenNil(t, t.champion);
   const rec = champRecord(t, t.champion);
-  const fin = finalInfo(t, t.champion);
   const isLeague = t.format === "league" || (t.fixtures && !t.rounds);
+  const fmtTag = isLeague ? "pontos corridos" : t.format === "cup" ? "copa" : "mata-mata";
   const standings = finalStandings(t, players);
-  const leagueRows = isLeague ? leagueTable(t, players) : [];
-  const finalLabel = fin
-    ? `${fin.gf} — ${fin.ga}${fin.pens ? ` (${fin.pens})` : ""}`
-    : `${rec.W}V ${rec.D}E ${rec.L}D`;
 
   // Seleção do campeonato: melhor XI por nota entre os titulares de TODOS os times.
   const bestXI = useMemo(() => {
@@ -182,37 +270,35 @@ export default function Champion({ state, isHost, actions }) {
   }, []);
 
   return (
-    <div className="screen champion champ-screen">
-      <Confetti />
-      <div className="champ-eyebrow">Fim da copa</div>
+    <div className="screen champion tchamp">
+      <Podium standings={standings} players={players} rec={rec} isLeague={isLeague} />
 
-      <div className="champ-body">
-        {/* ESQUERDA — card do campeão */}
-        <div className={`champ-card ${reveal ? "in" : ""}`}>
-          <span className="champ-trophy-big">🏆</span>
-          <div className="champ-tag">Campeão</div>
-          {champ && (
-            <>
-              <Avatar emoji={champ.emoji} color={champ.color} size={96} />
-              <div className="champ-name">{champ.teamName}</div>
-              <div className="champ-mgr">Técnico {champ.name}</div>
-            </>
-          )}
-          {sevenNil && <div className="champ-pill">Fez 7 a 0! 🎉</div>}
-          <div className="champ-stats">
-            <div className="champ-stat">
-              <span className="champ-stat-k">Final</span>
-              <b className="champ-stat-v">{finalLabel}</b>
-            </div>
-            <div className="champ-stat">
-              <span className="champ-stat-k">Aproveitamento</span>
-              <b className="champ-stat-v">{rec.apr}%</b>
-            </div>
+      <div className={`tchamp-grid ${reveal ? "in" : ""}`}>
+        {/* esquerda — classificação final */}
+        <div className="tchamp-col">
+          <div className="tchamp-sechead">
+            <h2 className="tchamp-h2">Classificação Final</h2>
+            <span className="tchamp-tag">{fmtTag}</span>
+          </div>
+          <div className="cstand">
+            {standings.map((row) => {
+              const p = players.find((pl) => pl.id === row.id);
+              const isChamp = row.pos === 1;
+              const isVice = row.pos === 2;
+              return (
+                <div className={`cstand-row ${isChamp ? "champ" : isVice ? "vice" : ""}`} key={row.id}>
+                  <span className="cstand-pos">{row.pos}º</span>
+                  <Avatar emoji={p?.emoji} color={p?.color} size={24} />
+                  <span className="cstand-name">{p?.teamName || "—"}</span>
+                  <span className="cstand-phase">{row.detail}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* DIREITA — artilharia + ações */}
-        <div className="champ-right">
+        {/* direita — artilheiro + goleadores + seleção */}
+        <div className="tchamp-col">
           {top && (
             <div className="topscorer">
               <span className="topscorer-badge">⚽</span>
@@ -243,73 +329,26 @@ export default function Champion({ state, isHost, actions }) {
               </div>
             </>
           )}
+
+          {bestXI && (
+            <>
+              <div className="tchamp-sechead spaced">
+                <h2 className="tchamp-h2">Seleção do Campeonato</h2>
+                <span className="tchamp-tag">por nota</span>
+              </div>
+              <BestXIPitch xi={bestXI} />
+            </>
+          )}
         </div>
       </div>
 
-      {standings.length > 1 && (
-        <div className={`champ-bottom ${reveal ? "in" : ""}`}>
-          <div className="champ-standings">
-            <div className="champ-standings-title">Classificação final{isLeague ? " · pontos corridos" : " · mata-mata"}</div>
-
-            {isLeague ? (
-              <div className="table champ-table">
-                <div className="table-head">
-                  <span className="th-pos">#</span>
-                  <span className="th-team">Time</span>
-                  <span>P</span><span>J</span><span>V</span><span>E</span><span>D</span><span>SG</span>
-                </div>
-                {leagueRows.map((row, i) => {
-                  const p = players.find((pl) => pl.id === row.id);
-                  return (
-                    <div key={row.id} className={`table-row ${row.id === t.champion ? "leader" : ""}`}>
-                      <span className="th-pos">{i + 1}</span>
-                      <span className="th-team">
-                        <Avatar emoji={p?.emoji} color={p?.color} size={22} />
-                        <span className="tr-name">{p?.teamName}</span>
-                      </span>
-                      <span className="tr-pts">{row.Pts}</span>
-                      <span>{row.P}</span>
-                      <span>{row.W}</span>
-                      <span>{row.D}</span>
-                      <span>{row.L}</span>
-                      <span>{row.GD > 0 ? "+" + row.GD : row.GD}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="standings-list">
-                {standings.map((row) => {
-                  const p = players.find((pl) => pl.id === row.id);
-                  return (
-                    <div key={row.id} className={`standings-row ${row.id === t.champion ? "is-champ" : ""}`}>
-                      <span className="standings-pos">{row.pos}º</span>
-                      <Avatar emoji={p?.emoji} color={p?.color} size={28} />
-                      <span className="standings-team">{p?.teamName}</span>
-                      <span className="standings-detail">{row.detail}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {bestXI && (
-            <div className="champ-bestxi">
-              <div className="champ-standings-title">Seleção do campeonato · por nota</div>
-              <BestXIPitch xi={bestXI} />
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="champ-actions champ-actions-bottom">
+      <div className="tchamp-actions">
         {isHost ? (
-          <button className="btn btn-primary btn-lg" onClick={actions.playAgain}>Jogar novamente</button>
+          <button className="btn btn-primary tchamp-again" onClick={actions.playAgain}>Jogar Novamente</button>
         ) : (
           <div className="waiting">Aguardando o anfitrião reiniciar…</div>
         )}
-        <button className="btn btn-ghost btn-leave" onClick={actions.leave}>Sair da sala</button>
+        <button className="btn tchamp-leave" onClick={actions.leave}>Sair da Sala</button>
       </div>
     </div>
   );
