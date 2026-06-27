@@ -582,7 +582,15 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
             <div className="ml-ht-card">
               <span className="pen-eyebrow">Intervalo</span>
               <div className="ml-ht-score">{homeName} <b>{view.score[0]}</b> — <b>{view.score[1]}</b> {awayName}</div>
-              <p className="ml-ht-text">Ajuste sua tática (botão ⚙ Tática) e confirme para começar o 2º tempo.</p>
+              <p className="ml-ht-text">Ajuste sua tática para o 2º tempo e confirme quando estiver pronto.</p>
+
+              {/* O ⚙ do cockpit fica atrás deste overlay — botão dedicado abre a Tática aqui.
+                  Aplicar uma alavanca vale já no 2º tempo (setTactic → recalcula o λ). */}
+              {iAmManager && (
+                <button className="btn btn-ghost btn-block ml-ht-tactics" onClick={() => setTacticsOpen(true)}>
+                  ⚙ Ajustar tática
+                </button>
+              )}
 
               {controllable.length === 0 ? (
                 <div className="waiting">Aguardando os técnicos confirmarem…</div>
