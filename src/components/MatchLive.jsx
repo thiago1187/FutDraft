@@ -41,7 +41,7 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist }) {
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist, managerTactics }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
@@ -103,6 +103,15 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       cpu: { home: !!homeMgr?.isBot, away: !!awayMgr?.isBot },
     });
     engineRef.current = eng;
+    // Táticas pré-definidas no ready-gate: o host (autoritativo) aplica as dos dois técnicos
+    // ao criar a partida nova (não na reidratação). Usa o setTactic público do motor —
+    // só preenche state.tactics; não muda a lógica de simulação.
+    if (!resume && managerTactics) {
+      const ht = managerTactics[homeMgr?.id];
+      const at = managerTactics[awayMgr?.id];
+      if (ht) eng.setTactic("home", ht);
+      if (at) eng.setTactic("away", at);
+    }
     if (!resume && forcePens) {
       eng.beginMatch();
       eng.state.phase = "PEN";

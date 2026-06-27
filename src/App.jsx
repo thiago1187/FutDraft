@@ -25,6 +25,7 @@ import Home from "./components/Home.jsx";
 import Lobby from "./components/Lobby.jsx";
 import Draft7a0 from "./components/Draft7a0.jsx";
 import Tournament from "./components/Tournament.jsx";
+import ReadyGate from "./components/ReadyGate.jsx";
 import Champion from "./components/Champion.jsx";
 import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
@@ -64,10 +65,14 @@ function applyDraftIntent(prev, intent, players, settings) {
   }
   const next = { ...prev, draft: d };
   if (d.done) {
-    next.phase = "tournament";
+    // Ready-gate pós-draft: vai para a tela de PRONTO (não direto pra partida). O torneio
+    // já é criado aqui, mas só começa quando todos confirmarem (fase "ready" → "tournament").
+    next.phase = "ready";
     next.tournament = createTournament(players || prev.players, settings || prev.settings);
     // token estável por instância de torneio — chave para gravar matches/champion no Supabase
     next.tournamentToken = "t_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    next.readyMgrs = {};        // confirmações zeram a cada novo torneio
+    next.managerTactics = {};   // táticas pré-definidas zeram a cada novo torneio
   }
   return next;
 }
@@ -380,7 +385,7 @@ export default function App() {
     if (!next || next === prev) return;
     if (next.phase !== prev.phase) r.setPhase(next.phase);
     const engine = {};
-    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken"]) {
+    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken", "readyMgrs", "managerTactics"]) {
       if (next[k] !== prev[k]) engine[k] = next[k] ?? null;
     }
     if (Object.keys(engine).length) r.setEngine(engine);
@@ -507,6 +512,27 @@ export default function App() {
         roomRef.current?.broadcast?.("draft", full);
       }
     },
+    // Ready-gate pós-draft: confirma um técnico. Controlador aplica direto; cliente avisa o
+    // host por broadcast (host autoritativo escreve rooms.state, igual ao draft).
+    markReady(managerId) {
+      const id = managerId || myId;
+      const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
+      if (controller) {
+        applyEngine((prev) => ({ ...prev, readyMgrs: { ...(prev.readyMgrs || {}), [id]: true } }));
+      } else {
+        roomRef.current?.broadcast?.("ready", { managerId: id });
+      }
+    },
+    // Tática pré-definida de um técnico (vale quando a partida dele começar). Mesmo padrão.
+    setManagerTactics(managerId, tactics) {
+      const id = managerId || myId;
+      const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
+      if (controller) {
+        applyEngine((prev) => ({ ...prev, managerTactics: { ...(prev.managerTactics || {}), [id]: tactics } }));
+      } else {
+        roomRef.current?.broadcast?.("preTactic", { managerId: id, tactics });
+      }
+    },
     simulateNext() {
       applyEngine((prev) => {
         const t = structuredClone(prev.tournament);
@@ -623,6 +649,8 @@ export default function App() {
         presenting: null,
         tournamentToken: null,
         draftToken: null,
+        readyMgrs: {},
+        managerTactics: {},
       }));
     },
   };
@@ -633,12 +661,31 @@ export default function App() {
     const controller = room.isLocal || gstate?.hostId === myId;
     if (!controller) return;
     const off = room.onBroadcast?.((event, data) => {
-      if (event !== "draft") return;
-      applyEngine((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+      if (event === "draft") {
+        applyEngine((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+      } else if (event === "ready" && data?.managerId) {
+        applyEngine((prev) => ({ ...prev, readyMgrs: { ...(prev.readyMgrs || {}), [data.managerId]: true } }));
+      } else if (event === "preTactic" && data?.managerId) {
+        applyEngine((prev) => ({ ...prev, managerTactics: { ...(prev.managerTactics || {}), [data.managerId]: data.tactics } }));
+      }
     });
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, gstate?.hostId, myId]);
+
+  // Ready-gate pós-draft: o controlador avança para o torneio quando TODOS os humanos
+  // confirmam (bots entram prontos). Host não "força" no botão; anti-AFK avança após 90s.
+  useEffect(() => {
+    if (!room || gstate?.phase !== "ready") return;
+    const controller = room.isLocal || gstate.hostId === myId;
+    if (!controller) return;
+    const humans = (gstate.players || []).filter((p) => !p.isBot);
+    const ready = gstate.readyMgrs || {};
+    const advance = () => applyEngine((prev) => (prev.phase === "ready" ? { ...prev, phase: "tournament" } : prev));
+    if (humans.length > 0 && humans.every((p) => ready[p.id])) { advance(); return; }
+    const afk = setTimeout(advance, 90000);
+    return () => clearTimeout(afk);
+  }, [room, gstate?.phase, gstate?.readyMgrs, gstate?.players, gstate?.hostId, myId]);
 
   // ---------- A4: persistência de partidas/torneio (só o anfitrião autenticado) ----------
   // Garante rooms.host_id = meu uid (as policies de matches/tournaments dependem disso).
@@ -853,6 +900,9 @@ export default function App() {
       )}
       {gstate.phase === "draft" && (
         <Draft7a0 state={gstate} myId={myId} isLocal={isLocal} isHost={isHost} actions={actions} />
+      )}
+      {gstate.phase === "ready" && (
+        <ReadyGate state={gstate} myId={myId} isHost={isHost} isLocal={isLocal} actions={actions} />
       )}
       {gstate.phase === "tournament" && (
         <Tournament
