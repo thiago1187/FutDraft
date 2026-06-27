@@ -144,7 +144,15 @@ async function openSupabaseRoom(code, { create = false, initialState = null, myU
     emit();
   });
   channel.on("presence", { event: "sync" }, () => {
-    online = Object.keys(channel.presenceState());
+    // `online` é a lista de IDENTIDADES presentes (cid = myId), não as chaves de presença
+    // (que são o id do APARELHO, c_…). O resto do app identifica jogadores por user_id
+    // (uuid do auth): hostId, p.id etc. Comparar uuid contra chave de aparelho nunca bate
+    // → falso "anfitrião saiu" e "entrando…" eterno em sala com 2+ humanos. O cid vem no
+    // presenceMeta ({ cid: myId }); caímos na chave só se algum meta vier sem cid.
+    const st = channel.presenceState();
+    const ids = new Set();
+    for (const k in st) for (const m of st[k]) ids.add(m?.cid || k);
+    online = [...ids];
     presCbs.forEach((cb) => cb(online));
   });
 

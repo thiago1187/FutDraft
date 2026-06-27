@@ -129,6 +129,10 @@ function makeSquadBot(players = []) {
   };
 }
 
+// Tempo contínuo sem o anfitrião na presença antes de declará-lo ausente (aviso + migração
+// T7). Absorve soluços de presença/reconexão — um sync isolado não dispara nada.
+const HOST_GRACE_MS = 9000;
+
 export default function App() {
   // Identidade: quando logado, é o auth.uid() (Supabase Auth); offline/convidado cai no
   // id anônimo do aparelho. `auth === undefined` = ainda verificando a sessão salva.
@@ -152,6 +156,8 @@ export default function App() {
   const [squadsError, setSquadsError] = useState("");
   const roomRef = useRef(null);
   const wasMemberRef = useRef(false);
+  const [hostGone, setHostGone] = useState(false); // anfitrião ausente CONFIRMADO (pós-grace)
+  const hostGraceRef = useRef(null);
 
   // Carrega as seleções reais do Supabase uma vez (250 seleções / 5.6k jogadores).
   useEffect(() => {
@@ -718,22 +724,33 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate?.draft, gstate?.draftToken, gstate?.hostId, auth, room, myId]);
 
-  // T7: migração automática de anfitrião. Se o host sai (não está na presença) e a sala
-  // segue ativa, o SUCESSOR (membro humano online de menor id — eleição determinística,
-  // só um assume) toma o comando após 4s. A partida ao vivo reidrata do estado salvo.
+  // T7 — anfitrião ausente com GRACE: só confirma a ausência (hostGone) depois de
+  // HOST_GRACE_MS contínuos sem o host na presença. Se ele reaparece dentro da janela,
+  // cancela sem piscar. Vale para o aviso "anfitrião saiu" E para a migração automática.
+  useEffect(() => {
+    if (!room || room.isLocal || !gstate) { if (hostGone) setHostGone(false); return; }
+    const absent = online.length > 0 && gstate.hostId && gstate.hostId !== myId && !online.includes(gstate.hostId);
+    if (!absent) {
+      if (hostGraceRef.current) { clearTimeout(hostGraceRef.current); hostGraceRef.current = null; }
+      if (hostGone) setHostGone(false);
+      return;
+    }
+    if (hostGone || hostGraceRef.current) return; // já confirmado ou já contando
+    hostGraceRef.current = setTimeout(() => { hostGraceRef.current = null; setHostGone(true); }, HOST_GRACE_MS);
+  }, [online, gstate, myId, room, hostGone]);
+
+  // T7: migração automática de anfitrião. Confirmada a ausência (hostGone) e a sala ainda
+  // ativa, o SUCESSOR (humano online de menor id — eleição determinística, só um assume)
+  // toma o comando. A partida ao vivo reidrata do estado salvo.
   useEffect(() => {
     if (!hasSupabase || !room || room.isLocal || !gstate) return;
-    const off = online.length > 0 && !online.includes(gstate.hostId);
-    if (!off || gstate.hostId === myId) return;
+    if (!hostGone || gstate.hostId === myId) return;
     const successor = (gstate.players || [])
       .filter((p) => !p.isBot && p.id !== gstate.hostId && online.includes(p.id))
       .map((p) => p.id).sort()[0];
     if (successor !== myId) return; // não sou o sucessor
-    const t = setTimeout(() => {
-      if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
-    }, 4000);
-    return () => clearTimeout(t);
-  }, [online, gstate, myId, room]);
+    if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
+  }, [hostGone, online, gstate, myId, room]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
@@ -816,7 +833,7 @@ export default function App() {
 
   const isHost = gstate.hostId === myId;
   const isLocal = !!room?.isLocal;
-  const hostOffline = !isLocal && online.length > 0 && !online.includes(gstate.hostId);
+  const hostOffline = hostGone; // já embute !isLocal + presença + grace de HOST_GRACE_MS
 
   const liveFull = gstate.phase === "tournament" && gstate.presenting?.mode === "live";
   return (
