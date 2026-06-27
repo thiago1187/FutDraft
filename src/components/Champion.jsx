@@ -263,6 +263,14 @@ export default function Champion({ state, isHost, actions }) {
     return bestEleven(pool, findFormation(11, "4-3-3"));
   }, [state, players]);
 
+  // OVR geral da seleção do campeonato = média das notas dos 11 (arredondada).
+  const bestXIOvr = useMemo(() => {
+    if (!bestXI) return null;
+    const ovrs = bestXI.map(({ player }) => player?.ovr).filter((n) => n != null);
+    if (!ovrs.length) return null;
+    return Math.round(ovrs.reduce((a, b) => a + b, 0) / ovrs.length);
+  }, [bestXI]);
+
   const [reveal, setReveal] = useState(false);
   useEffect(() => {
     const id = setTimeout(() => setReveal(true), 250);
@@ -335,6 +343,11 @@ export default function Champion({ state, isHost, actions }) {
               <div className="tchamp-sechead spaced">
                 <h2 className="tchamp-h2">Seleção do Campeonato</h2>
                 <span className="tchamp-tag">por nota</span>
+                {bestXIOvr != null && (
+                  <span className="champ-xi-ovr" title="Média de nota da seleção">
+                    <b>{bestXIOvr}</b><small>OVR</small>
+                  </span>
+                )}
               </div>
               <BestXIPitch xi={bestXI} />
             </>
