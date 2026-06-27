@@ -32,6 +32,7 @@ import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
+import { listFriendships } from "./lib/social.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -121,6 +122,7 @@ export default function App() {
   const [guest, setGuest] = useState(false);
   const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [incomingCount, setIncomingCount] = useState(0);
   const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
   const [gstate, setGstate] = useState(null);
@@ -164,6 +166,15 @@ export default function App() {
     getProfile(authUid).then((p) => alive && setProfile(p)).catch(() => {});
     return () => { alive = false; };
   }, [authUid]);
+
+  // Conta pedidos de amizade recebidos (badge no botão de perfil). Recarrega ao
+  // entrar/sair da tela de perfil (onde dá pra aceitar).
+  useEffect(() => {
+    if (!authUid) { setIncomingCount(0); return; }
+    let alive = true;
+    listFriendships(authUid).then((f) => alive && setIncomingCount(f.incoming.length)).catch(() => {});
+    return () => { alive = false; };
+  }, [authUid, showProfile]);
 
   useEffect(() => {
     roomRef.current = room;
@@ -697,6 +708,7 @@ export default function App() {
           account={auth ? profile : null}
           onSignOut={auth ? onSignOut : null}
           onOpenProfile={auth ? () => setShowProfile(true) : null}
+          incomingRequests={incomingCount}
         />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>

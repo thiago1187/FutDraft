@@ -2315,3 +2315,11 @@ body {
 .tecnico-friend:hover { background: var(--green); border-color: var(--green); color: #fff; }
 .tecnico-friend.is-on { background: transparent; border-color: var(--green); color: var(--green-mid); cursor: default; }
 .tecnico-friend.pend { background: transparent; border-style: dashed; color: var(--muted2); cursor: default; }
+
+/* botão de amizade no pós-jogo + badge de pedidos na Home */
+.add-friend { border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 9px; padding: 8px 14px; font-family: var(--head); font-weight: 600; font-size: 13px; cursor: pointer; }
+.add-friend:hover:not(:disabled) { background: var(--green); border-color: var(--green); color: #fff; }
+.add-friend.is-on { border-color: var(--green); color: var(--green-mid); background: transparent; cursor: default; }
+.add-friend.pend { border-style: dashed; color: var(--muted2); background: transparent; cursor: default; }
+.pm-add-friend { width: 100%; margin-bottom: 8px; }
+.home-req-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 7px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; }
