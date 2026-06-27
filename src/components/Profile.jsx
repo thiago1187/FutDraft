@@ -74,8 +74,24 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
       setNotice(e?.message || "Falha ao carregar.");
     }
   }
+  // Atualização só da PRESENÇA (leve) — mantém online/em sala/visto há X fresquinho
+  // enquanto o Perfil está aberto. Evita assinar profiles em realtime (seria um firehose:
+  // todo heartbeat de todo usuário; o postgres_changes não filtra por lista de amigos).
+  async function refreshPresence() {
+    try {
+      const f = await listFriendships(myId);
+      setFriends(f);
+      const codes = f.friends.map((x) => x.profile?.current_room).filter(Boolean);
+      setRoomStatus(codes.length ? await roomsJoinable(codes).catch(() => ({})) : {});
+    } catch { /* presença é best-effort */ }
+  }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { refresh(); }, [myId]);
+  useEffect(() => {
+    const iv = setInterval(() => { refreshPresence(); }, 25_000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myId]);
 
   return (
     <div className="screen profile-screen">
