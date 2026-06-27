@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createLiveMatch } from "./liveMatch.js";
+import { createLiveMatch, penaltyScored } from "./liveMatch.js";
+import { mulberry32 } from "./rng.js";
 import { findFormation } from "./formations.js";
 
 const POS = [
@@ -51,5 +52,29 @@ describe("createLiveMatch — determinismo pela seed", () => {
     // pelo menos uma métrica difere (placar, chutes ou posse)
     const differ = JSON.stringify([a.score, a.shots, a.possession]) !== JSON.stringify([b.score, b.shots, b.possession]);
     expect(differ).toBe(true);
+  });
+});
+
+describe("penaltyScored — conversão ~67%", () => {
+  const DIRS = ["cantoE", "meio", "cantoD"];
+  it("com escolhas aleatórias (goleiro acerta ~1/3) converte ~67%", () => {
+    const r = mulberry32(2024);
+    let goals = 0; const N = 30000;
+    for (let i = 0; i < N; i++) {
+      const aim = DIRS[Math.floor(r() * 3)], gk = DIRS[Math.floor(r() * 3)];
+      if (penaltyScored(0.78, aim, gk, r)) goals++;
+    }
+    const conv = goals / N;
+    expect(conv).toBeGreaterThan(0.60);
+    expect(conv).toBeLessThan(0.73);
+  });
+  it("goleiro no canto certo defende mais do que no canto errado", () => {
+    const r = mulberry32(7);
+    let matched = 0, unmatched = 0; const N = 8000;
+    for (let i = 0; i < N; i++) {
+      if (penaltyScored(0.78, "cantoE", "cantoE", r)) matched++;
+      if (penaltyScored(0.78, "cantoE", "cantoD", r)) unmatched++;
+    }
+    expect(unmatched / N).toBeGreaterThan(matched / N);
   });
 });

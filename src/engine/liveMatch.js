@@ -15,7 +15,7 @@ const HALF = 45;
 const SIM_STEP = 450; // ms (escalados) entre decisões — jogadas mais deliberadas/visíveis
 // Conversão-base do chute, ancorada no λ (fluxo único gol↔chute). Calibrada no harness
 // para gols ~2,5 e conversão ~10% (ver §T3). pGoal por chute ∝ λ/volume → gols ≈ λ.
-const GOAL_K = 0.12;
+const GOAL_K = 0.097;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -39,6 +39,16 @@ function basePositions(team, side) {
 }
 
 const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4 };
+
+// Desfecho do pênalti a partir do DUELO de cantos (cobrador × goleiro) + qualidade do
+// batedor (prob). Goleiro acertou o canto → defesa provável; errou → quase certo o gol.
+// Calibrado p/ ~67% de conversão com escolhas aleatórias (goleiro acerta ~1/3). Puro
+// (recebe rng) → usado pelo jogo e medido no harness.
+export function penaltyScored(prob, aim, gkDir, rng) {
+  const matched = aim === gkDir;
+  const p = matched ? prob * 0.38 : Math.min(prob * 1.10, 0.95);
+  return rng() < p;
+}
 
 export function createLiveMatch(home, away, opts = {}) {
   const knockout = !!opts.knockout;
@@ -74,7 +84,7 @@ export function createLiveMatch(home, away, opts = {}) {
     lastEvent: null,
     cinematic: null,
     penaltyPending: null, // pênalti EM JOGO aguardando cobrança (resolvido pela UI); { att, def, taker, picks, deadline, animating, lastKick, id }
-    stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0] },
+    stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0], passAtt: [0, 0], passOk: [0, 0] },
     ready: { home: !!cpu.home, away: !!cpu.away },
     started: !!(cpu.home && cpu.away), // bot×bot começa na hora; senão espera o ready-gate
     preReady: { home: !!cpu.home, away: !!cpu.away }, // CPU já entra pronta
@@ -247,7 +257,7 @@ export function createLiveMatch(home, away, opts = {}) {
         const e = 1 - Math.pow(1 - clamp(state.pass.t, 0, 1), 2); // ease-out
         state.ball.x = lerp(state.pass.fx, recv.x, e);
         state.ball.y = lerp(state.pass.fy, recv.y, e);
-        if (state.pass.t >= 1) { state.carrier = { side: state.possession, idx: state.pass.toIdx }; state.pass = null; }
+        if (state.pass.t >= 1) { state.stats.passOk[idx(state.possession)]++; state.carrier = { side: state.possession, idx: state.pass.toIdx }; state.pass = null; }
       }
     } else {
       // CONDUÇÃO: a bola fica no pé do portador
@@ -281,8 +291,6 @@ export function createLiveMatch(home, away, opts = {}) {
     const drib = effOvr(c);
     let loseP = clamp(0.05 * pressInt * (pd < 11 ? 2.1 : pd < 20 ? 1.2 : 0.6) + (tackler - drib) / 300, 0.01, 0.26);
     if (rnd() < loseP) {
-      // chance de falta do defensor ao desarmar (mais com pressão alta)
-      if (rnd() < (t[opp].marking === "pressao" ? 0.58 : 0.42)) return doFoul(opp, c, bp, presser);
       turnover(opp, "tackle");
       return;
     }
@@ -324,8 +332,12 @@ export function createLiveMatch(home, away, opts = {}) {
     // direto = escolhe entre as 2 melhores (mais vertical); toque = entre as 3
     const pick = opts[Math.floor(rnd() * Math.min(opts.length, direct > 0.6 ? 2 : 3))];
 
-    // interceptação no passe (linha alta adversária ajuda)
-    if (rnd() < 0.05 + (state.tactics[other(poss)].line === "alta" ? 0.05 : 0)) {
+    // tentativa de passe (para o % de acerto). Erra por interceptação/passe ruim —
+    // mais com pressão adversária, jogo direto e contra linha alta. Toque erra menos.
+    state.stats.passAtt[idx(poss)]++;
+    const oppT = state.tactics[other(poss)];
+    const failP = clamp(0.12 + (oppT.marking === "pressao" ? 0.05 : 0) + (oppT.line === "alta" ? 0.03 : 0) + direct * 0.06, 0.06, 0.3);
+    if (rnd() < failP) {
       turnover(other(poss), "intercept");
       return;
     }
@@ -351,39 +363,38 @@ export function createLiveMatch(home, away, opts = {}) {
     const field = state.tokens[side].filter((p) => !p.out && p.pos !== "GK");
     if (!field.length) return null;
     if (fouler && !fouler.out && fouler.pos !== "GK" && fouler.pos !== "ATT" && rnd() < 0.7) return fouler;
-    const w = field.map((p) => (p.pos === "DEF" ? 1.0 : p.pos === "MID" ? 0.55 : 0.12));
+    // quem já tem amarelo joga com MUITO mais cuidado (e costuma ser poupado/substituído):
+    // peso bem menor → evita uma epidemia de 2º amarelo (mantém o vermelho raro).
+    const w = field.map((p) => {
+      const base = p.pos === "DEF" ? 1.0 : p.pos === "MID" ? 0.55 : 0.12;
+      return (p.yellow || 0) >= 1 ? base * 0.22 : base;
+    });
     let r = rnd(w.reduce((s, x) => s + x, 0));
     for (let i = 0; i < field.length; i++) { r -= w[i]; if (r <= 0) return field[i]; }
     return field[0];
   }
 
-  function doFoul(byside, victim, bp, fouler) {
-    state.stats.fouls[idx(byside)]++;
-    const att = other(byside);
-    // pênalti se a falta foi perto da área do infrator
-    const nearBox = bp > 0.80 && rnd() < 0.22;
-    // quem leva o cartão: tende a ser zagueiro/meio (faltas táticas). Atacante quase
-    // nunca — usa o autor real só se ele NÃO for atacante; senão sorteia DEF/MID.
-    const off = cardOffender(byside, fouler);
+  // Decide o cartão de uma falta. Respeita a contagem POR JOGADOR: nunca dá um amarelo
+  // "isolado" em quem já tem amarelo — se já tem 1 e leva outro, é 2º amarelo (expulsão).
+  // Vermelho direto é raro. Retorna true se houve cartão (cinemática isolada).
+  function foulCard(side, press) {
+    const off = cardOffender(side, null);
+    if (!off) return false;
     const r = rnd();
-    const pressao = state.tactics[byside].marking === "pressao";
-    if (off && r < (pressao ? 0.011 : 0.006)) {
-      doRedCard(byside, off, "Cartão vermelho"); // vermelho direto
-    } else if (off && r < (pressao ? 0.40 : 0.30)) {
-      off.yellow = (off.yellow || 0) + 1;
-      if (off.yellow >= 2) {
-        // SEGUNDO amarelo → expulso
-        emit("yellow", byside, { name: off.name, second: true });
-        doRedCard(byside, off, "2º amarelo → expulso");
-      } else {
-        emit("yellow", byside, { name: off.name });
-        setCinematic({ type: "yellow", side: byside, name: off.name, holdMs: 650 });
+    if (r < 0.0033 * press) { doRedCard(side, off, "Cartão vermelho"); return true; } // direto (raro)
+    if (r < clamp(0.18 * press, 0, 0.5)) {
+      if ((off.yellow || 0) >= 1) {
+        off.yellow = 2;
+        emit("yellow", side, { name: off.name, second: true });
+        doRedCard(side, off, "2º amarelo → expulso");
+        return true;
       }
+      off.yellow = 1;
+      emit("yellow", side, { name: off.name });
+      setCinematic({ type: "yellow", side, name: off.name, holdMs: 600 });
+      return true;
     }
-    if (nearBox) { doPenalty(att); return; }
-    // falta comum: posse do atacante onde estava
-    state.possession = att;
-    state.carrier = null; state.pass = null;
+    return false; // falta sem cartão
   }
 
   // Expulsa um jogador (vermelho direto, 2º amarelo, ou — sem alvo — escolhe um zagueiro).
@@ -474,9 +485,23 @@ export function createLiveMatch(home, away, opts = {}) {
     for (const side of ["home", "away"]) {
       if (rnd() < state.lam[side] * 0.00082) { doPenalty(side); return; }
     }
+    // FALTAS e CARTÕES — escalam com pressing/marcação e com o DESESPERO (perdendo no
+    // fim). Falta é ambiente (stat); cartão dispara cinemática e encerra o minuto.
+    {
+      const fo = rnd() < 0.5 ? ["home", "away"] : ["away", "home"];
+      for (const side of fo) {
+        const press = state.tactics[side].marking === "pressao" ? 1.7 : 1.0;
+        const losing = state.score[idx(side)] < state.score[idx(other(side))];
+        const desp = losing ? 1 + clamp((state.minute - 55) / 35, 0, 1) * 0.7 : 1;
+        if (rnd() < clamp(0.12 * press * desp, 0, 0.45)) {
+          state.stats.fouls[idx(side)]++;
+          if (foulCard(side, press)) return;
+        }
+      }
+    }
     const order = rnd() < 0.5 ? ["home", "away"] : ["away", "home"];
     for (const side of order) {
-      const rate = clamp((0.055 + state.lam[side] * 0.045) * shotVol(side), 0.02, 0.36);
+      const rate = clamp((0.087 + state.lam[side] * 0.05) * shotVol(side), 0.02, 0.42);
       if (rnd() < rate) {
         let shooter, bp;
         if (state.chance && state.chance.side === side) {

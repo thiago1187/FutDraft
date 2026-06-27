@@ -8,14 +8,14 @@
 //
 // NÃO usa DOM nem Supabase: monta elencos sintéticos por overall.
 
-import { createLiveMatch } from "./liveMatch.js";
+import { createLiveMatch, penaltyScored } from "./liveMatch.js";
 import { simulateMatch } from "./match.js";
 import { computeLambdas } from "./rates.js";
 import { winProb } from "./winprob.js";
 import { findFormation } from "./formations.js";
 
 const N_QUICK = Number(process.argv[2]) || 20000; // sim rápida (rápida → N alto)
-const N_LIVE = Number(process.argv[3]) || 1500;   // motor ao vivo (mais lento)
+const N_LIVE = Number(process.argv[3]) || 2200;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão não dar flaky)
 
 // ---------- elencos sintéticos ----------
 const SLOTS = [
@@ -87,32 +87,36 @@ function runLive(oH, oA, tacH) {
   eng.beginMatch(); // pula o ready-gate (sem UI no harness)
   if (tacH) eng.setTactic("home", tacH);
   const DIRS = ["cantoE", "meio", "cantoD"], rd = () => DIRS[Math.floor(Math.random() * 3)];
-  let g = 0, lastPen = 0, pens = 0;
+  let g = 0, lastPen = 0, pens = 0, penGoals = 0;
   while (!eng.isOver() && g < 30000) {
     if (eng.state.phase === "INT") { eng.setReady("home"); eng.setReady("away"); }
     const pp = eng.state.penaltyPending;
-    if (pp && !pp.animating && pp.id !== lastPen) { // árbitro: resolve com escolhas aleatórias
-      lastPen = pp.id; const aim = rd(), gk = rd(), matched = gk === aim, prob = pp.prob || 0.78;
-      const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
-      eng.resolvePenalty(Math.random() < Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw)), aim, gk);
+    if (pp && !pp.animating && pp.id !== lastPen) { // árbitro: escolhas aleatórias (canto/mergulho)
+      lastPen = pp.id; const aim = rd(), gk = rd();
+      const scored = penaltyScored(pp.prob || 0.78, aim, gk, Math.random);
+      if (scored) penGoals++;
+      eng.resolvePenalty(scored, aim, gk);
       pens++;
     }
     eng.step(60, 6); g++;
   }
   const s = eng.state;
-  s._pens = pens;
   const poss = s.stats.possession[0] + s.stats.possession[1] || 1;
   let cardPos = { GK: 0, DEF: 0, MID: 0, ATT: 0 }, cards = 0;
   for (const side of ["home", "away"]) for (const p of s.tokens[side]) {
     if (p.yellow > 0) { cardPos[p.pos] += (p.yellow >= 2 ? 2 : 1); cards += (p.yellow >= 2 ? 2 : 1); }
   }
+  const directReds = s.events.filter((e) => e.type === "red" && !/amarelo/i.test(e.reason || "")).length;
   return {
     gh: s.score[0], ga: s.score[1],
     shots: s.stats.shots[0] + s.stats.shots[1], onT: s.stats.onTarget[0] + s.stats.onTarget[1],
     corners: s.stats.corners[0] + s.stats.corners[1], fouls: s.stats.fouls[0] + s.stats.fouls[1],
     reds: s.cards.home.filter((c) => c === "red").length + s.cards.away.filter((c) => c === "red").length,
+    directReds,
     yellows: s.events.filter((e) => e.type === "yellow").length,
-    pens: s._pens || 0,
+    pens, penGoals,
+    passAtt: s.stats.passAtt[0] + s.stats.passAtt[1],
+    passOk: s.stats.passOk[0] + s.stats.passOk[1],
     xg: s.xg[0] + s.xg[1],
     homePoss: s.stats.possession[0] / poss,
     badOT: (s.stats.onTarget[0] > s.stats.shots[0] || s.stats.onTarget[1] > s.stats.shots[1]) ? 1 : 0,
@@ -124,13 +128,14 @@ function runLive(oH, oA, tacH) {
 function calibLive() {
   console.log(`\n=== MOTOR AO VIVO (liveMatch.js) — ${N_LIVE} jogos ===`);
   let pass = true;
-  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, Y = 0, P = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0, XG = 0;
-  let possSum = 0, possExtreme = 0;
+  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, DR = 0, Y = 0, P = 0, PG = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0, XG = 0;
+  let PA = 0, POK = 0, possSum = 0, possExtreme = 0;
   const cp = { GK: 0, DEF: 0, MID: 0, ATT: 0 }; let totCards = 0;
   for (let i = 0; i < N_LIVE; i++) {
     const r = runLive(80, 80);
     G += r.gh + r.ga; SH += r.shots; OT += r.onT; CO += r.corners; F += r.fouls;
-    R += r.reds; Y += r.yellows; P += r.pens; badOT += r.badOT; badGoal += r.badGoal; XG += r.xg;
+    R += r.reds; DR += r.directReds; Y += r.yellows; P += r.pens; PG += r.penGoals;
+    PA += r.passAtt; POK += r.passOk; badOT += r.badOT; badGoal += r.badGoal; XG += r.xg;
     if (r.hw) HW++; else if (r.aw) AW++;
     possSum += r.homePoss; if (r.homePoss < 0.25 || r.homePoss > 0.75) possExtreme++;
     for (const k in cp) cp[k] += r.cardPos[k]; totCards += r.cards;
@@ -139,22 +144,30 @@ function calibLive() {
   const shotsT = SH / N_LIVE / 2, otT = OT / N_LIVE / 2, coT = CO / N_LIVE / 2, goalsT = G / N_LIVE / 2;
   const conv = goalsT / shotsT;
   const sym = Math.abs(HW - AW) / N_LIVE;
+  const passPct = POK / (PA || 1);
+  const penConv = PG / (P || 1);
+  const reds = R / N_LIVE, dReds = DR / N_LIVE, yel = Y / N_LIVE, secondYellowReds = reds - dReds;
   console.log("\n 80x80 (times iguais):");
+  pass &= line("Gols por jogo (2 times)", (G / N_LIVE).toFixed(2), "2.2–2.8", within(G / N_LIVE, 2.2, 2.8));
   pass &= line("Finalizações por time", shotsT.toFixed(1), "8–18", within(shotsT, 8, 18));
-  pass &= line("Conversão (gols/chutes)", pctStr(conv), "9%–13%", within(conv, 0.09, 0.13));
+  pass &= line("Conversão de chutes", pctStr(conv), "9%–11%", within(conv, 0.085, 0.115));
   const xgT = XG / N_LIVE / 2;
   pass &= line("xG por time (≈ gols)", xgT.toFixed(2), `${(goalsT - 0.3).toFixed(2)}–${(goalsT + 0.6).toFixed(2)}`, within(xgT, goalsT - 0.3, goalsT + 0.6));
   pass &= line("No alvo por time", otT.toFixed(1), "3–7", within(otT, 3, 7));
   pass &= line("Escanteios por time", coT.toFixed(1), "3.5–7", within(coT, 3.5, 7));
-  pass &= line("Faltas por time", (F / N_LIVE / 2).toFixed(1), "informativo", true);
-  pass &= line("Vermelhos por jogo", (R / N_LIVE).toFixed(3), "~0.06 (0.03–0.11)", within(R / N_LIVE, 0.03, 0.11));
-  pass &= line("Amarelos por jogo", (Y / N_LIVE).toFixed(2), "informativo", true);
+  pass &= line("Passe certo", pctStr(passPct), "75%–88%", within(passPct, 0.75, 0.88));
+  pass &= line("Faltas por jogo (2 times)", (F / N_LIVE).toFixed(1), "informativo", true);
+  pass &= line("Amarelos por jogo (2 times)", yel.toFixed(2), "3.5–4.0", within(yel, 3.5, 4.0));
+  pass &= line("Vermelhos por jogo (total)", reds.toFixed(3), "0.20–0.25", within(reds, 0.20, 0.25));
+  pass &= line("  dos quais 2º amarelo (maioria)", secondYellowReds.toFixed(3), `> direto (${dReds.toFixed(3)})`, secondYellowReds > dReds);
+  pass &= line("Vermelho DIRETO por jogo (raro)", dReds.toFixed(3), "0.06–0.08", within(dReds, 0.055, 0.09));
   pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "~0.20 (0.13–0.28)", within(P / N_LIVE, 0.13, 0.28));
+  // pênaltis são raros (~0.2/jogo) → amostra pequena mesmo com N alto; banda ±6pp p/ não dar flaky.
+  pass &= line("Conversão de pênalti (~67%)", pctStr(penConv), "61%–73%", within(penConv, 0.61, 0.73));
   pass &= line("Estados impossíveis (noAlvo>chutes)", badOT, "0", badOT === 0);
   pass &= line("Estados impossíveis (gol>chutes)", badGoal, "0", badGoal === 0);
   pass &= line("Simetria |home-away| (sem mando)", pctStr(sym), "< 4 pp", sym < 0.04);
   pass &= line("Posse média (simétrica, sem mando)", pctStr(avgPoss), "47%–53%", within(avgPoss, 0.47, 0.53));
-  line("Jogos com posse extrema (<25%/>75%)", pctStr(possExtreme / N_LIVE), "informativo", true);
   const attPct = cp.ATT / (totCards || 1);
   pass &= line("Cartões p/ atacante (deve ser baixo)", pctStr(attPct), "< 15%", attPct < 0.15);
   return !!pass;

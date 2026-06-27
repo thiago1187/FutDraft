@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createLiveMatch } from "../engine/liveMatch.js";
+import { createLiveMatch, penaltyScored } from "../engine/liveMatch.js";
 import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
@@ -216,9 +216,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     // quase certo (mas batedor fraco ainda pode perder).
     const matched = pp.picks.gk === pp.picks.aim;
     const prob = pp.prob ?? 0.78;
-    const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
-    const pGoal = Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw));
-    const scored = Math.random() < pGoal;
+    // mesma mecânica do harness (calibrada ~67%) → jogo e calibração batem.
+    const scored = penaltyScored(prob, pp.picks.aim, pp.picks.gk, Math.random);
     // desfecho COERENTE com a animação: gol / defesa (goleiro acertou o canto) / pra fora
     // (goleiro foi pro lado errado e o batedor errou — a bola sai, não é "defesa").
     const outcome = scored ? "goal" : matched ? "save" : "miss";
