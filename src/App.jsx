@@ -33,6 +33,7 @@ import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
 import { listFriendships } from "./lib/social.js";
+import { randomSeed } from "./engine/rng.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -71,6 +72,19 @@ function applyDraftIntent(prev, intent, players, settings) {
 }
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+// Traduz erros técnicos (RLS/permissão do Postgres) para algo legível ao jogador.
+function friendlyError(e, fallback) {
+  const msg = String(e?.message || "").toLowerCase();
+  if (e?.code === "42501" || msg.includes("row-level security") || msg.includes("permission")) {
+    return "Sem permissão para essa ação (você precisa estar logado e ser membro da sala).";
+  }
+  if (e?.code === "not_found" || msg.includes("not_found")) return "Sala não encontrada. Confira o código.";
+  if (msg.includes("timeout") || msg.includes("conexão") || msg.includes("network")) {
+    return "Falha de conexão. Verifique a internet e tente de novo.";
+  }
+  return fallback + (e?.message ? ` (${e.message})` : "");
+}
 
 function genCode() {
   let c = "";
@@ -257,7 +271,7 @@ export default function App() {
       });
       attach(r, name);
     } catch (e) {
-      setError("Não foi possível criar a sala. " + (e?.message || ""));
+      setError(friendlyError(e, "Não foi possível criar a sala."));
     } finally {
       setConnecting(false);
     }
@@ -283,8 +297,7 @@ export default function App() {
       }
       attach(r, name);
     } catch (e) {
-      if (e?.code === "not_found") setError("Sala não encontrada. Confira o código.");
-      else setError("Não foi possível entrar. " + (e?.message || ""));
+      setError(friendlyError(e, "Não foi possível entrar."));
     } finally {
       setConnecting(false);
     }
@@ -349,7 +362,7 @@ export default function App() {
     if (!next || next === prev) return;
     if (next.phase !== prev.phase) r.setPhase(next.phase);
     const engine = {};
-    for (const k of ["draft", "tournament", "presenting", "tournamentToken"]) {
+    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken"]) {
       if (next[k] !== prev[k]) engine[k] = next[k] ?? null;
     }
     if (Object.keys(engine).length) r.setEngine(engine);
@@ -415,6 +428,8 @@ export default function App() {
     leave,
     startDraft() {
       const r = roomRef.current;
+      // token estável por instância de draft — chave para gravar draft_picks no Supabase
+      const draftToken = "d_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
       const buildDraft = (players, settings) => {
         const humans = players.filter((p) => !p.isBot);
         const mgr = {};
@@ -449,7 +464,7 @@ export default function App() {
         }
         // o draft só precisa dos humanos atuais; o torneio (no fim) usa os players da sala
         const draft = buildDraft(prev.players, prev.settings);
-        r.setEngine({ draft });
+        r.setEngine({ draft, draftToken });
         r.setPhase("draft");
         return;
       }
@@ -461,7 +476,7 @@ export default function App() {
         let guard = 0;
         while (players.length < target && guard < 32) { players.push(makeSquadBot(players)); guard++; }
         const draft = buildDraft(players, prev.settings);
-        return { ...prev, players, phase: "draft", draft };
+        return { ...prev, players, phase: "draft", draft, draftToken };
       });
     },
     // Envia uma intent de draft (aplica direto se for o controlador; senão, broadcast).
@@ -493,7 +508,18 @@ export default function App() {
     },
     // Abre a partida 2D ao vivo (resultado é gerado pelo motor ao terminar).
     startLiveMatch(matchId) {
-      applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now() } }));
+      // seed persistida na sala → a partida é reproduzível pela seed (replay/multiplayer)
+      const seed = randomSeed();
+      applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now(), seed } }));
+    },
+    // T7: o anfitrião persiste o estado vivo (eng.serialize()) na sala a cada ~3s. Se ele
+    // cair, o novo anfitrião reidrata a partida daqui (não recomeça do minuto 0).
+    persistLive(serialized) {
+      const r = roomRef.current;
+      if (!r || r.isLocal) return;
+      const st = r.getState();
+      if (st?.hostId !== myId || st?.presenting?.mode !== "live") return; // só o host, em partida ao vivo
+      r.setEngine({ presenting: { ...st.presenting, live: serialized } });
     },
     finishLiveMatch(matchId, result) {
       applyEngine((prev) => {
@@ -578,6 +604,7 @@ export default function App() {
         tournament: null,
         presenting: null,
         tournamentToken: null,
+        draftToken: null,
       }));
     },
   };
@@ -644,6 +671,57 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate?.tournament, gstate?.tournamentToken, gstate?.hostId, auth, room, myId]);
+
+  // A6/T6: espelha cada pick finalizado do draft em draft_picks (durável; o sorteio em
+  // curso segue no rooms.state). Só o anfitrião grava; dedupe por manager+slot.
+  const recordedPicksRef = useRef(new Set());
+  useEffect(() => {
+    if (!hasSupabase || !auth || !room || room.isLocal) return;
+    if (gstate?.hostId !== myId) return;
+    const d = gstate?.draft;
+    const token = gstate?.draftToken;
+    if (!d || !token || !d.mgr) return;
+    const findPlayer = (id) => {
+      for (const s of SQUADS) { const p = s.players.find((x) => x.id === id); if (p) return p; }
+      return null;
+    };
+    let order = recordedPicksRef.current.size;
+    for (const managerId of Object.keys(d.mgr)) {
+      const slots = d.mgr[managerId].slots || {};
+      for (const slotIdx of Object.keys(slots)) {
+        const playerId = slots[slotIdx];
+        if (!playerId) continue;
+        const key = token + ":" + managerId + ":" + slotIdx;
+        if (recordedPicksRef.current.has(key)) continue;
+        recordedPicksRef.current.add(key);
+        const pl = findPlayer(playerId);
+        history.recordDraftPick({
+          token, roomId: gstate.code, slot: Number(slotIdx),
+          userId: managerId, squadSlug: pl?.squadId || null,
+          playerId: pl?.personId || playerId, playerName: pl?.name || null,
+          position: pl?.detail || pl?.pos || null, pickOrder: order++,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gstate?.draft, gstate?.draftToken, gstate?.hostId, auth, room, myId]);
+
+  // T7: migração automática de anfitrião. Se o host sai (não está na presença) e a sala
+  // segue ativa, o SUCESSOR (membro humano online de menor id — eleição determinística,
+  // só um assume) toma o comando após 4s. A partida ao vivo reidrata do estado salvo.
+  useEffect(() => {
+    if (!hasSupabase || !room || room.isLocal || !gstate) return;
+    const off = online.length > 0 && !online.includes(gstate.hostId);
+    if (!off || gstate.hostId === myId) return;
+    const successor = (gstate.players || [])
+      .filter((p) => !p.isBot && p.id !== gstate.hostId && online.includes(p.id))
+      .map((p) => p.id).sort()[0];
+    if (successor !== myId) return; // não sou o sucessor
+    const t = setTimeout(() => {
+      if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [online, gstate, myId, room]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;

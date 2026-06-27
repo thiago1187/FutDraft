@@ -8,14 +8,14 @@
 //
 // NÃO usa DOM nem Supabase: monta elencos sintéticos por overall.
 
-import { createLiveMatch } from "./liveMatch.js";
+import { createLiveMatch, penaltyScored } from "./liveMatch.js";
 import { simulateMatch } from "./match.js";
 import { computeLambdas } from "./rates.js";
 import { winProb } from "./winprob.js";
 import { findFormation } from "./formations.js";
 
 const N_QUICK = Number(process.argv[2]) || 20000; // sim rápida (rápida → N alto)
-const N_LIVE = Number(process.argv[3]) || 1500;   // motor ao vivo (mais lento)
+const N_LIVE = Number(process.argv[3]) || 3000;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão não dar flaky)
 
 // ---------- elencos sintéticos ----------
 const SLOTS = [
@@ -87,32 +87,36 @@ function runLive(oH, oA, tacH) {
   eng.beginMatch(); // pula o ready-gate (sem UI no harness)
   if (tacH) eng.setTactic("home", tacH);
   const DIRS = ["cantoE", "meio", "cantoD"], rd = () => DIRS[Math.floor(Math.random() * 3)];
-  let g = 0, lastPen = 0, pens = 0;
+  let g = 0, lastPen = 0, pens = 0, penGoals = 0;
   while (!eng.isOver() && g < 30000) {
     if (eng.state.phase === "INT") { eng.setReady("home"); eng.setReady("away"); }
     const pp = eng.state.penaltyPending;
-    if (pp && !pp.animating && pp.id !== lastPen) { // árbitro: resolve com escolhas aleatórias
-      lastPen = pp.id; const aim = rd(), gk = rd(), matched = gk === aim, prob = pp.prob || 0.78;
-      const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
-      eng.resolvePenalty(Math.random() < Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw)), aim, gk);
+    if (pp && !pp.animating && pp.id !== lastPen) { // árbitro: escolhas aleatórias (canto/mergulho)
+      lastPen = pp.id; const aim = rd(), gk = rd();
+      const scored = penaltyScored(pp.prob || 0.78, aim, gk, Math.random);
+      if (scored) penGoals++;
+      eng.resolvePenalty(scored, aim, gk);
       pens++;
     }
     eng.step(60, 6); g++;
   }
   const s = eng.state;
-  s._pens = pens;
   const poss = s.stats.possession[0] + s.stats.possession[1] || 1;
   let cardPos = { GK: 0, DEF: 0, MID: 0, ATT: 0 }, cards = 0;
   for (const side of ["home", "away"]) for (const p of s.tokens[side]) {
     if (p.yellow > 0) { cardPos[p.pos] += (p.yellow >= 2 ? 2 : 1); cards += (p.yellow >= 2 ? 2 : 1); }
   }
+  const directReds = s.events.filter((e) => e.type === "red" && !/amarelo/i.test(e.reason || "")).length;
   return {
     gh: s.score[0], ga: s.score[1],
     shots: s.stats.shots[0] + s.stats.shots[1], onT: s.stats.onTarget[0] + s.stats.onTarget[1],
     corners: s.stats.corners[0] + s.stats.corners[1], fouls: s.stats.fouls[0] + s.stats.fouls[1],
     reds: s.cards.home.filter((c) => c === "red").length + s.cards.away.filter((c) => c === "red").length,
+    directReds,
     yellows: s.events.filter((e) => e.type === "yellow").length,
-    pens: s._pens || 0,
+    pens, penGoals,
+    passAtt: s.stats.passAtt[0] + s.stats.passAtt[1],
+    passOk: s.stats.passOk[0] + s.stats.passOk[1],
     xg: s.xg[0] + s.xg[1],
     homePoss: s.stats.possession[0] / poss,
     badOT: (s.stats.onTarget[0] > s.stats.shots[0] || s.stats.onTarget[1] > s.stats.shots[1]) ? 1 : 0,
@@ -124,13 +128,14 @@ function runLive(oH, oA, tacH) {
 function calibLive() {
   console.log(`\n=== MOTOR AO VIVO (liveMatch.js) — ${N_LIVE} jogos ===`);
   let pass = true;
-  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, Y = 0, P = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0, XG = 0;
-  let possSum = 0, possExtreme = 0;
+  let G = 0, SH = 0, OT = 0, CO = 0, F = 0, R = 0, DR = 0, Y = 0, P = 0, PG = 0, badOT = 0, badGoal = 0, HW = 0, AW = 0, XG = 0;
+  let PA = 0, POK = 0, possSum = 0, possExtreme = 0;
   const cp = { GK: 0, DEF: 0, MID: 0, ATT: 0 }; let totCards = 0;
   for (let i = 0; i < N_LIVE; i++) {
     const r = runLive(80, 80);
     G += r.gh + r.ga; SH += r.shots; OT += r.onT; CO += r.corners; F += r.fouls;
-    R += r.reds; Y += r.yellows; P += r.pens; badOT += r.badOT; badGoal += r.badGoal; XG += r.xg;
+    R += r.reds; DR += r.directReds; Y += r.yellows; P += r.pens; PG += r.penGoals;
+    PA += r.passAtt; POK += r.passOk; badOT += r.badOT; badGoal += r.badGoal; XG += r.xg;
     if (r.hw) HW++; else if (r.aw) AW++;
     possSum += r.homePoss; if (r.homePoss < 0.25 || r.homePoss > 0.75) possExtreme++;
     for (const k in cp) cp[k] += r.cardPos[k]; totCards += r.cards;
@@ -139,22 +144,30 @@ function calibLive() {
   const shotsT = SH / N_LIVE / 2, otT = OT / N_LIVE / 2, coT = CO / N_LIVE / 2, goalsT = G / N_LIVE / 2;
   const conv = goalsT / shotsT;
   const sym = Math.abs(HW - AW) / N_LIVE;
+  const passPct = POK / (PA || 1);
+  const penConv = PG / (P || 1);
+  const reds = R / N_LIVE, dReds = DR / N_LIVE, yel = Y / N_LIVE, secondYellowReds = reds - dReds;
   console.log("\n 80x80 (times iguais):");
+  pass &= line("Gols por jogo (2 times)", (G / N_LIVE).toFixed(2), "2.2–2.8", within(G / N_LIVE, 2.2, 2.8));
   pass &= line("Finalizações por time", shotsT.toFixed(1), "8–18", within(shotsT, 8, 18));
-  pass &= line("Conversão (gols/chutes)", pctStr(conv), "9%–13%", within(conv, 0.09, 0.13));
+  pass &= line("Conversão de chutes", pctStr(conv), "9%–11%", within(conv, 0.085, 0.115));
   const xgT = XG / N_LIVE / 2;
   pass &= line("xG por time (≈ gols)", xgT.toFixed(2), `${(goalsT - 0.3).toFixed(2)}–${(goalsT + 0.6).toFixed(2)}`, within(xgT, goalsT - 0.3, goalsT + 0.6));
   pass &= line("No alvo por time", otT.toFixed(1), "3–7", within(otT, 3, 7));
   pass &= line("Escanteios por time", coT.toFixed(1), "3.5–7", within(coT, 3.5, 7));
-  pass &= line("Faltas por time", (F / N_LIVE / 2).toFixed(1), "informativo", true);
-  pass &= line("Vermelhos por jogo", (R / N_LIVE).toFixed(3), "~0.06 (0.03–0.11)", within(R / N_LIVE, 0.03, 0.11));
-  pass &= line("Amarelos por jogo", (Y / N_LIVE).toFixed(2), "informativo", true);
+  pass &= line("Passe certo", pctStr(passPct), "75%–88%", within(passPct, 0.75, 0.88));
+  pass &= line("Faltas por jogo (2 times)", (F / N_LIVE).toFixed(1), "informativo", true);
+  pass &= line("Amarelos por jogo (2 times)", yel.toFixed(2), "3.5–4.0", within(yel, 3.5, 4.0));
+  pass &= line("Vermelhos por jogo (total)", reds.toFixed(3), "0.20–0.25", within(reds, 0.20, 0.25));
+  pass &= line("  dos quais 2º amarelo (maioria)", secondYellowReds.toFixed(3), `> direto (${dReds.toFixed(3)})`, secondYellowReds > dReds);
+  pass &= line("Vermelho DIRETO por jogo (raro)", dReds.toFixed(3), "0.06–0.08", within(dReds, 0.055, 0.09));
   pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "~0.20 (0.13–0.28)", within(P / N_LIVE, 0.13, 0.28));
+  // pênaltis são raros (~0.2/jogo) → amostra pequena mesmo com N alto; banda ±6pp p/ não dar flaky.
+  pass &= line("Conversão de pênalti (~67%)", pctStr(penConv), "61%–73%", within(penConv, 0.61, 0.73));
   pass &= line("Estados impossíveis (noAlvo>chutes)", badOT, "0", badOT === 0);
   pass &= line("Estados impossíveis (gol>chutes)", badGoal, "0", badGoal === 0);
   pass &= line("Simetria |home-away| (sem mando)", pctStr(sym), "< 4 pp", sym < 0.04);
   pass &= line("Posse média (simétrica, sem mando)", pctStr(avgPoss), "47%–53%", within(avgPoss, 0.47, 0.53));
-  line("Jogos com posse extrema (<25%/>75%)", pctStr(possExtreme / N_LIVE), "informativo", true);
   const attPct = cp.ATT / (totCards || 1);
   pass &= line("Cartões p/ atacante (deve ser baixo)", pctStr(attPct), "< 15%", attPct < 0.15);
   return !!pass;
@@ -184,7 +197,109 @@ function calibTactics() {
   return pass;
 }
 
+// ========== 4) A/B de funcionalidade (Prompt 2) — `--ab` ==========
+import { lambdas, winPct, liveAB, tokens, pWin, simWinFreq } from "./ab.js";
+
+function abLine(name, metric, A, B, dir, sig) {
+  const d = B - A, ok = sig && (dir === 0 || Math.sign(d) === Math.sign(dir));
+  const tag = ok ? "OK" : sig ? "DIR✗" : "MORTO";
+  console.log(`  [${tag}] ${name.padEnd(26)} ${metric.padEnd(20)} A=${A.toFixed(3)}  B=${B.toFixed(3)}  Δ=${d >= 0 ? "+" : ""}${d.toFixed(3)}`);
+  return ok;
+}
+function calibAB() {
+  const N = Number(process.argv.find((a, i) => process.argv[i - 1] === "--ab")) || 8000;
+  console.log(`\n================ A/B DE FUNCIONALIDADE (live N=${N}/célula) ================`);
+  let pass = true;
+  const home = tokens(80), away = tokens(80);
+  const base = lambdas(home, away);
+
+  console.log("\n§1 ALAVANCAS TÁTICAS (uma de cada vez, resto neutro; mandante recebe a tática):");
+  // Mentalidade: gols feitos (λ_home), gols sofridos (λ_away), win%
+  {
+    const A = lambdas(home, away, { posture: "defensivo" }), B = lambdas(home, away, { posture: "ofensivo" });
+    pass &= abLine("Mentalidade", "gols feitos (λ)", A.home, B.home, +1, Math.abs(B.home - A.home) > 0.02);
+    pass &= abLine("  (Retranca→Ataque)", "gols sofridos (λ)", A.away, B.away, +1, Math.abs(B.away - A.away) > 0.02);
+    const wA = winPct(home, away, { posture: "defensivo" }), wB = winPct(home, away, { posture: "ofensivo" });
+    console.log(`  [info] win%: Retranca=${(wA * 100).toFixed(1)}%  Ataque=${(wB * 100).toFixed(1)}%  (base 50%) → ${wB >= wA ? "Ataque ≥ Retranca ✓" : "⚠ Retranca vence mais (suspeito)"}`);
+    pass &= (wB >= wA);
+  }
+  // Linha: xG sofrido (λ_away) baixa vs alta
+  {
+    const A = lambdas(home, away, { line: "baixa" }), B = lambdas(home, away, { line: "alta" });
+    pass &= abLine("Linha defensiva", "xG sofrido (λ_adv)", A.away, B.away, +1, Math.abs(B.away - A.away) > 0.02);
+  }
+  // Pressing: faltas + cartões (live) leve vs pressão
+  {
+    const A = liveAB({ marking: "leve" }, N), B = liveAB({ marking: "pressao" }, N);
+    pass &= abLine("Pressing", "faltas (mandante)", A.fouls, B.fouls, +1, Math.abs(B.fouls - A.fouls) > 2 * (A.foulsSE + B.foulsSE));
+    pass &= abLine("  (Leve→Pressão)", "cartões (mandante)", A.cards, B.cards, +1, Math.abs(B.cards - A.cards) > 0.05);
+  }
+  // Construção: nº de passes (live) toque vs direto
+  {
+    const A = liveAB({ build: 0.1 }, N), B = liveAB({ build: 0.9 }, N);
+    pass &= abLine("Construção", "passes tentados", A.passAtt, B.passAtt, -1, Math.abs(B.passAtt - A.passAtt) > 1);
+    pass &= abLine("  (Toque→Direto)", "passe certo %", A.passPct, B.passPct, -1, Math.abs(B.passPct - A.passPct) > 0.005);
+  }
+
+  console.log("\n§2 SINERGIA TÁTICA × ELENCO (efeito CONDICIONAL, escala com o atributo):");
+  {
+    // linha alta vs média: o quanto a defesa concede A MAIS. Com zaga FRACA o salto é MAIOR.
+    const strong = tokens(80, { defOvr: 90 }), weak = tokens(80, { defOvr: 64 });
+    const dStrong = lambdas(strong, away, { line: "alta" }).away - lambdas(strong, away, { line: "media" }).away;
+    const dWeak = lambdas(weak, away, { line: "alta" }).away - lambdas(weak, away, { line: "media" }).away;
+    pass &= abLine("Linha alta × zaga", "Δ xG sofrido (alta-média)", dStrong, dWeak, +1, dWeak > dStrong + 0.01);
+    console.log(`  → zaga fraca sofre ${(dWeak / Math.max(dStrong, 1e-9)).toFixed(1)}× mais com linha alta (condicional ✓)`);
+  }
+
+  console.log("\n§3 OVER POR SETOR (atributo move a métrica do setor):");
+  {
+    pass &= abLine("+Ataque (+8)", "xG criado (λ_home)", base.home, lambdas(tokens(80, { ATT: 8 }), away).home, +1, true);
+    pass &= abLine("+Defesa (+8)", "xG sofrido (λ_away)", base.away, lambdas(tokens(80, { DEF: 8 }), away).away, -1, true);
+    pass &= abLine("+Goleiro (+8)", "xG sofrido (λ_away)", base.away, lambdas(tokens(80, { GK: 8 }), away).away, -1, true);
+    const mid = liveAB(null, N, { MID: 8 });
+    pass &= abLine("+Meio (+8)", "posse (mandante)", 0.5, mid.poss, +1, Math.abs(mid.poss - 0.5) > 0.005);
+    // monotonia do win% com o over
+    const w0 = winPct(tokens(80), away), w5 = winPct(tokens(85), away), w10 = winPct(tokens(90), away);
+    const mono = w0 < w5 && w5 < w10;
+    console.log(`  [${mono ? "OK" : "DIR✗"}] win% monotônico com over    +0=${(w0 * 100).toFixed(1)}%  +5=${(w5 * 100).toFixed(1)}%  +10=${(w10 * 100).toFixed(1)}%`);
+    pass &= mono;
+  }
+
+  console.log("\n§5 PROBABILIDADE AO VIVO vs SIMULAÇÃO (100k finais/estado, erro < 1pp):");
+  {
+    const SEED = 987654321;
+    const states = [
+      ["0-0 min0  λ1.4/1.4 (igual)", 0, 0, 1.4, 1.4, 0],
+      ["1-0 min60 λ1.4/1.4 (lidera)", 1, 0, 1.4, 1.4, 60],
+      ["0-1 min80 λ1.4/1.4 (atrás/fim)", 0, 1, 1.4, 1.4, 80],
+      ["0-0 min0  λ2.0/1.0 (favorito)", 0, 0, 2.0, 1.0, 0],
+      ["1-1 min45 λ0.9/1.5 (10 homens)", 1, 1, 0.9, 1.5, 45],
+    ];
+    for (const [name, a, b, lh, la, m] of states) {
+      const p = pWin(a, b, lh, la, m, true), f = simWinFreq(a, b, lh, la, m, true, 100000, SEED);
+      const err = Math.abs(p - f), ok = err < 0.01;
+      console.log(`  [${ok ? "OK" : "ERRO"}] ${name.padEnd(32)} P=${(p * 100).toFixed(2)}%  freq=${(f * 100).toFixed(2)}%  erro=${(err * 100).toFixed(2)}pp`);
+      pass &= ok;
+    }
+    const r1 = pWin(1, 0, 1.4, 1.4, 30, true) > pWin(0, 0, 1.4, 1.4, 30, true);   // gol sobe a P
+    const r2 = pWin(0, 0, 1.0, 1.4, 30, true) < pWin(0, 0, 1.4, 1.4, 30, true);   // −λ (expulsão) desce
+    const r3 = pWin(1, 0, 1.4, 1.4, 80, true) > pWin(1, 0, 1.4, 1.4, 40, true);   // relógio empurra o líder
+    const r4 = Math.abs(pWin(0, 0, 1.4, 1.4, 0, true) - 0.5) < 1e-9;              // sem mando (igual = 50%)
+    const w = winProb(1, 1, 1.3, 1.1, 70, { knockout: false });
+    const r5 = Math.abs(w.win + w.draw + w.loss - 1) < 1e-12;                     // P soma 1
+    console.log(`  reatividade: [${r1 ? "OK" : "✗"}] gol↑P  [${r2 ? "OK" : "✗"}] expulsão↓P  [${r3 ? "OK" : "✗"}] relógio→líder  [${r4 ? "OK" : "✗"}] sem mando 50%  [${r5 ? "OK" : "✗"}] ΣP=1`);
+    pass &= r1 && r2 && r3 && r4 && r5;
+  }
+  return !!pass;
+}
+
 // ========== run ==========
+if (process.argv.includes("--ab")) {
+  const r = calibAB();
+  console.log("\n================ RESULTADO A/B ================");
+  console.log(r ? "✓ Toda alavanca/atributo move a métrica certa na direção certa (nenhum botão morto)." : "✗ Há botão morto ou direção errada — ver [MORTO]/[DIR✗] acima.");
+  process.exit(r ? 0 : 1);
+}
 console.log("================ CALIBRAÇÃO DE REALISMO — FutDraft ================");
 const a = calibQuick();
 const b = calibLive();

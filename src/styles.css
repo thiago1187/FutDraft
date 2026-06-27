@@ -2305,6 +2305,13 @@ body {
 .friend-remove { color: var(--red); }
 .profile-notice { margin-top: 14px; background: #fff4ec; border: 1.5px solid var(--red); color: var(--red-dark); border-radius: 10px; padding: 9px 13px; font-size: 13px; }
 
+/* ===== Error boundary ===== */
+.error-screen { text-align: center; gap: 14px; }
+.error-emoji { font-size: 46px; }
+.error-title { font-family: var(--display); font-size: 24px; text-transform: uppercase; color: var(--ink); margin: 0; }
+.error-msg { max-width: 460px; font-size: 13px; word-break: break-word; }
+.error-actions { display: flex; gap: 10px; margin-top: 8px; }
+
 /* perfil: grade de bandeiras (rolável) + imagem da bandeira no botão */
 .profile-flag-grid { max-height: 168px; overflow-y: auto; padding-right: 2px; }
 .profile-emoji .profile-flag { width: 82%; height: 82%; object-fit: cover; border-radius: 4px; display: block; }

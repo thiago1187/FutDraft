@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createLiveMatch } from "../engine/liveMatch.js";
+import { createLiveMatch, penaltyScored } from "../engine/liveMatch.js";
 import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
@@ -40,12 +40,16 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players }) {
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
   const lastTs = useRef(0);
   const lastSnap = useRef(0);
+  const lastRender = useRef(0);
+  const lastPersist = useRef(0);
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore; // mantém o último estado salvo acessível na hora da posse
   const finishedRef = useRef(false);
   const pensStartedRef = useRef(false);
   const penResultRef = useRef(null);
@@ -86,14 +90,19 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   useEffect(() => { speedRef.current = speed; }, [speed]);
 
   // ---- CONTROLLER ----
+  // Roda quando EU sou (ou viro) o anfitrião. Se há estado salvo (restore), a partida
+  // REIDRATA de onde parou (migração de host); senão, começa do zero. Depende de
+  // `controller` → um espectador que assume o comando passa a simular na hora.
   useEffect(() => {
     if (!controller) return;
+    const resume = restoreRef.current; // captura o último estado salvo no momento da posse
     const eng = createLiveMatch(home, away, {
-      knockout: match.knockout, homeColor, awayColor,
+      knockout: match.knockout, homeColor, awayColor, seed: match.seed,
+      restore: resume || undefined,
       cpu: { home: !!homeMgr?.isBot, away: !!awayMgr?.isBot },
     });
     engineRef.current = eng;
-    if (forcePens) {
+    if (!resume && forcePens) {
       eng.beginMatch();
       eng.state.phase = "PEN";
       eng.state.minute = 90;
@@ -104,6 +113,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       if (event === "cmd" && engineRef.current) applyCommand(data);
     });
     const loop = (ts) => {
+      // partida acabou (mata-mata finalizado OU tela de fim da liga) → para o loop
+      // (antes ficava rodando step()+setTick a 60fps na tela de fim, gastando CPU).
+      if (finishedRef.current || endResultRef.current) return;
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
@@ -118,6 +130,12 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         lastSnap.current = ts;
         room.broadcast("snap", compact(e.state));
       }
+      // T7: persiste o estado vivo na sala a cada ~3s → se eu cair, o novo anfitrião
+      // reidrata daqui (não recomeça do minuto 0).
+      if (onPersist && e && ts - lastPersist.current > 3000) {
+        lastPersist.current = ts;
+        try { onPersist(e.serialize()); } catch (_) {}
+      }
       if (e?.needsPens?.() && !pensStartedRef.current) {
         pensStartedRef.current = true;
         startPens(e);
@@ -127,15 +145,17 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         if (match.knockout) finalize(res);
         else { endResultRef.current = res; setEnded(true); }
       }
-      setTick((n) => (n + 1) % 1000000);
-      rafRef.current = requestAnimationFrame(loop);
+      // throttle do re-render a ~30fps (o motor segue avançando a cada frame; só a
+      // renderização React é limitada — corta pela metade o custo no mobile).
+      if (ts - lastRender.current > 33) { lastRender.current = ts; setTick((n) => (n + 1) % 1000000); }
+      if (!finishedRef.current && !endResultRef.current) rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     // anti-AFK: se alguém não confirmar "Pronto" em 30s, começa mesmo assim.
     const afk = setTimeout(() => { engineRef.current?.beginMatch?.(); setTick((n) => n + 1); }, 30000);
     return () => { cancelAnimationFrame(rafRef.current); lastTs.current = 0; clearTimeout(afk); off && off(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [controller]);
 
   // ---- SPECTATOR ----
   useEffect(() => {
@@ -147,7 +167,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     });
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [controller]);
 
   // ---- ÁRBITRO DOS PÊNALTIS (anfitrião) ----
   // Preenche o lado da CPU na hora; espera os humanos até o prazo de 3s e então
@@ -210,9 +230,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     // quase certo (mas batedor fraco ainda pode perder).
     const matched = pp.picks.gk === pp.picks.aim;
     const prob = pp.prob ?? 0.78;
-    const raw = matched ? 0.16 + (prob - 0.6) * 0.6 : 0.86 + (prob - 0.6) * 0.25;
-    const pGoal = Math.max(matched ? 0.10 : 0.80, Math.min(matched ? 0.42 : 0.97, raw));
-    const scored = Math.random() < pGoal;
+    // mesma mecânica do harness (calibrada ~67%) → jogo e calibração batem.
+    const scored = penaltyScored(prob, pp.picks.aim, pp.picks.gk, Math.random);
     // desfecho COERENTE com a animação: gol / defesa (goleiro acertou o canto) / pra fora
     // (goleiro foi pro lado errado e o batedor errou — a bola sai, não é "defesa").
     const outcome = scored ? "goal" : matched ? "save" : "miss";

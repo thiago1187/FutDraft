@@ -120,6 +120,7 @@ async function openSupabaseRoom(code, { create = false, initialState = null, myU
       tournament: st.tournament || null,
       presenting: st.presenting || null,
       tournamentToken: st.tournamentToken || null,
+      draftToken: st.draftToken || null,
     };
   }
   const emit = () => { const s = assemble(); stateCbs.forEach((cb) => cb(s)); };
@@ -145,19 +146,26 @@ async function openSupabaseRoom(code, { create = false, initialState = null, myU
     presCbs.forEach((cb) => cb(online));
   });
 
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout ao conectar")), 12000);
-    channel.subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        clearTimeout(timer);
-        await channel.track(presenceMeta || {});
-        resolve();
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        clearTimeout(timer);
-        reject(new Error("erro de conexão (" + status + ")"));
-      }
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("timeout ao conectar")), 12000);
+      channel.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          clearTimeout(timer);
+          await channel.track(presenceMeta || {});
+          resolve();
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          clearTimeout(timer);
+          reject(new Error("erro de conexão (" + status + ")"));
+        }
+      });
     });
-  });
+  } catch (e) {
+    // Sem isso, o canal subscrito-pela-metade fica órfão no cliente e pode reconectar
+    // em background, duplicando postgres_changes em retentativas.
+    try { await supabase.removeChannel(channel); } catch (_) {}
+    throw e;
+  }
 
   // Atualiza rooms (merge) e reflete localmente na hora (otimista).
   async function patchRoom(patch) {
@@ -255,12 +263,14 @@ async function openLocalRoom(code, { create = false, initialState = null }) {
     if (raw === null && initialState) localStorage.setItem(KEY, JSON.stringify(initialState));
   }
 
-  window.addEventListener("storage", (e) => {
+  // Nomeado para poder remover em leave() (sem isso, reentrar acumula listeners órfãos).
+  const onStorage = (e) => {
     if (e.key === KEY && e.newValue) {
       _state = JSON.parse(e.newValue);
       stateCbs.forEach((cb) => cb(_state));
     }
-  });
+  };
+  window.addEventListener("storage", onStorage);
 
   const bcastCbs = new Set();
   let bc = null;
@@ -292,6 +302,7 @@ async function openLocalRoom(code, { create = false, initialState = null }) {
     onBroadcast(cb) { bcastCbs.add(cb); return () => bcastCbs.delete(cb); },
     async leave() {
       stateCbs.clear(); bcastCbs.clear();
+      window.removeEventListener("storage", onStorage);
       try { if (bc) bc.close(); } catch (_) {}
     },
   };

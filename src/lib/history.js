@@ -84,6 +84,47 @@ export async function recordMatch({ token, roomId, name, format, round, home, aw
   } catch (_) { /* histórico é best-effort; nunca quebra a partida */ }
 }
 
+// ---- Draft relacional (espelho durável; o sorteio em curso segue no rooms.state) ----
+const draftCache = new Map(); // token -> Promise<draftId|null>
+function ensureDraft(token, roomId) {
+  if (!hasSupabase || !token) return Promise.resolve(null);
+  if (!draftCache.has(token)) {
+    draftCache.set(
+      token,
+      (async () => {
+        const { data, error } = await supabase
+          .from("drafts")
+          .insert({ room_id: roomId || null, status: "active" })
+          .select("id")
+          .maybeSingle();
+        if (error) { console.warn("draft insert:", error.message); return null; }
+        return data?.id || null;
+      })()
+    );
+  }
+  return draftCache.get(token);
+}
+
+// Grava um pick finalizado em draft_picks (só o anfitrião chama; RLS host-of-room autoriza).
+export async function recordDraftPick({ token, roomId, slot, userId, squadSlug, playerId, playerName, position, pickOrder }) {
+  if (!hasSupabase || !token) return;
+  try {
+    const draftId = await ensureDraft(token, roomId);
+    if (!draftId) return;
+    await supabase.from("draft_picks").insert({
+      draft_id: draftId,
+      room_id: roomId || null,
+      slot: slot ?? null,
+      user_id: userId && isUuid(userId) ? userId : null,
+      squad_slug: squadSlug || null,
+      player_id: playerId || null,
+      player_name: playerName || null,
+      position: position || null,
+      pick_order: pickOrder ?? null,
+    });
+  } catch (_) { /* best-effort */ }
+}
+
 // Marca o campeão do torneio (atualiza a linha já criada por recordMatch).
 export async function setChampion({ token, championUserId, championSquad }) {
   if (!hasSupabase || !token) return;

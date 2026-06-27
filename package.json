@@ -8,6 +8,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "sim:calibrate": "node src/engine/calibrate.js"
   },
   "dependencies": {
@@ -16,7 +19,13 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.13.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.8"
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.11.0",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.4"
   }
 }
