@@ -1625,7 +1625,7 @@ body {
 
 /* TÁTICA — overlay */
 .mlf-tactics-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.62); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.mlf-tactics-card { background: var(--ink); border: 1px solid var(--dark3); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); }
+.mlf-tactics-card { background: var(--ink); border: 1px solid var(--dark3); border-radius: 14px; padding: 20px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55); max-height: calc(100dvh - 40px); overflow-y: auto; }
 .mlf-tactics-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .mlf-tactics-head .mlf-label { margin: 0; }
 .mlf-tactics-close { background: var(--dark2); border: none; color: var(--paper); width: 30px; height: 30px; border-radius: 7px; cursor: pointer; font-size: 14px; flex-shrink: 0; }
