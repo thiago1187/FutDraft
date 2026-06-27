@@ -775,6 +775,7 @@ function StatRow({ label, h, a, hc, ac, pctMode }) {
 const POSTURES = [["defensivo", "Def"], ["equilibrado", "Eq"], ["ofensivo", "Ofen"]];
 const LINES = [["baixa", "Baixa"], ["media", "Média"], ["alta", "Alta"]];
 const MARKING = [["leve", "Leve"], ["pressao", "Pressão alta"]];
+const ATTACK_FOCUS = [["esq", "Esquerda"], ["meio", "Meio"], ["dir", "Direita"]];
 
 function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
   const cur = tactics?.[side] || {};
@@ -783,7 +784,7 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
   const sideRef = useRef(side);
   if (sideRef.current !== side) { sideRef.current = side; if (pending !== cur) setPending(cur); }
 
-  const dirty = ["posture", "line", "build", "marking"].some((k) => pending[k] !== cur[k]);
+  const dirty = ["posture", "line", "build", "marking", "attackSide", "manMark"].some((k) => pending[k] !== cur[k]);
   function set(k, v) { if (!locked) setPending((p) => ({ ...p, [k]: v })); }
   function applyPreset(p) { if (!locked) setPending((cur2) => ({ ...cur2, posture: p.posture, line: p.line, marking: p.marking, build: p.build })); }
   const build = pending.build ?? 0.4;
@@ -814,6 +815,9 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
         </div>
       </div>
       <Seg label="Pressão" options={MARKING} value={pending.marking} onPick={(v) => set("marking", v)} />
+
+      <div className="mlf-seg-label mlf-adv-label">Avançado</div>
+      <Seg label="Foco de ataque" options={ATTACK_FOCUS} value={pending.attackSide || "meio"} onPick={(v) => set("attackSide", v)} />
 
       {/* ENCAIXE estilo × elenco */}
       {synergy.length > 0 && (

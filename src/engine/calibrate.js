@@ -290,6 +290,22 @@ function calibAB() {
     console.log(`  reatividade: [${r1 ? "OK" : "✗"}] gol↑P  [${r2 ? "OK" : "✗"}] expulsão↓P  [${r3 ? "OK" : "✗"}] relógio→líder  [${r4 ? "OK" : "✗"}] sem mando 50%  [${r5 ? "OK" : "✗"}] ΣP=1`);
     pass &= r1 && r2 && r3 && r4 && r5;
   }
+
+  console.log("\n§6 ALAVANCAS NOVAS (tactics-v2):");
+  {
+    // Foco de ataque / lado preferido — a parcela de xG do lado escolhido sobe.
+    const neu = liveAB({ attackSide: "meio" }, N), dir = liveAB({ attackSide: "dir" }, N), esq = liveAB({ attackSide: "esq" }, N);
+    pass &= abLine("Lado=Direita", "% xG pela direita", neu.xgShareDir, dir.xgShareDir, +1, dir.xgShareDir - neu.xgShareDir > 0.04);
+    pass &= abLine("Lado=Esquerda", "% xG pela esquerda", neu.xgShareEsq, esq.xgShareEsq, +1, esq.xgShareEsq - neu.xgShareEsq > 0.04);
+    // Matchup condicional: atacar o flanco DEFENSIVO fraco do rival rende mais xG (λ).
+    const home = tokens(80);
+    const weakL = tokens(80, { set: { LE: 60, PE: 62 } });   // adversário fraco na esquerda
+    const strongL = tokens(80, { set: { LE: 92, PE: 90 } });  // adversário forte na esquerda
+    const lamWeak = lambdas(home, weakL, { attackSide: "dir" }).home;   // ataco a direita = esquerda deles
+    const lamStrong = lambdas(home, strongL, { attackSide: "dir" }).home;
+    pass &= abLine("Atacar flanco fraco", "λ criado (xG)", lamStrong, lamWeak, +1, lamWeak - lamStrong > 0.03);
+    console.log(`  → atacar o lado fraco do rival rende ${((lamWeak / lamStrong - 1) * 100).toFixed(0)}% mais xG que o lado forte (condicional ✓)`);
+  }
   return !!pass;
 }
 

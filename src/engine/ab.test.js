@@ -68,6 +68,32 @@ describe("A/B funcionalidade — táticas e over (regressão)", () => {
   }, 40000);
 });
 
+describe("Alavanca 1 — Foco de ataque / lado preferido", () => {
+  const away = tokens(80);
+
+  it("escolher um lado concentra o xG naquele corredor", () => {
+    const neu = liveAB({ attackSide: "meio" }, 200);
+    const dir = liveAB({ attackSide: "dir" }, 200);
+    const esq = liveAB({ attackSide: "esq" }, 200);
+    expect(dir.xgShareDir).toBeGreaterThan(neu.xgShareDir + 0.06);
+    expect(esq.xgShareEsq).toBeGreaterThan(neu.xgShareEsq + 0.06);
+  }, 40000);
+
+  it("matchup condicional: atacar o flanco DEFENSIVO fraco do rival rende mais xG (λ)", () => {
+    const home = tokens(80);
+    const weakLeft = tokens(80, { set: { LE: 60, PE: 62 } });   // adversário fraco na esquerda
+    const strongLeft = tokens(80, { set: { LE: 92, PE: 90 } });  // adversário forte na esquerda
+    const lamWeak = lambdas(home, weakLeft, { attackSide: "dir" }).home;   // direita minha = esquerda dele
+    const lamStrong = lambdas(home, strongLeft, { attackSide: "dir" }).home;
+    expect(lamWeak).toBeGreaterThan(lamStrong + 0.05);
+  });
+
+  it("foco 'meio' não muda o λ de times equilibrados (sem regressão)", () => {
+    const home = tokens(80);
+    expect(lambdas(home, away, { attackSide: "meio" }).home).toBeCloseTo(lambdas(home, away).home, 9);
+  });
+});
+
 describe("§5 Probabilidade ao vivo — bate com a simulação e reage certo", () => {
   // P exibida (winProb analítica) vs frequência simulada (50k finais). Erro < 0.8pp.
   it.each([

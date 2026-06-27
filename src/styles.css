@@ -2330,3 +2330,6 @@ body {
 .add-friend.pend { border-style: dashed; color: var(--muted2); background: transparent; cursor: default; }
 .pm-add-friend { width: 100%; margin-bottom: 8px; }
 .home-req-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 7px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; }
+
+/* divisor "Avançado" na tela de tática ao vivo */
+.mlf-adv-label.mlf-adv-label { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); opacity: 0.8; }
