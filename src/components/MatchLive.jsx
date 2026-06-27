@@ -9,8 +9,8 @@ import PostMatch from "./PostMatch.jsx";
 
 const SPEEDS = [1, 2, 4];
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
-const PEN_TIMER_MS = 6000; // disputa de pênaltis: 6s para escolher; depois vai no aleatório
-const IG_PEN_TIMER_MS = 4000; // pênalti EM JOGO: 4s para escolher canto/mergulho
+const PEN_TIMER_MS = 7000; // disputa de pênaltis: tempo p/ escolher (depois vai no aleatório)
+const IG_PEN_TIMER_MS = 6000; // pênalti EM JOGO: tempo p/ escolher canto/mergulho
 const rndDir = () => PEN_DIRS[Math.floor(Math.random() * PEN_DIRS.length)];
 const otherSide = (s) => (s === "home" ? "away" : "home");
 const POS_ORDER = { GK: 0, DEF: 1, MID: 2, ATT: 3 };
@@ -606,6 +606,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       {pens && (
         <Penalties
           pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
+          homeMgr={homeMgr} awayMgr={awayMgr}
           controllable={controllable} isLocal={isLocal} isHost={controller} canFinish={controller}
           onAim={(v) => penChoose("aim", v)} onGk={(v) => penChoose("gk", v)} onResolve={commitKick}
           onContinue={() => penResultRef.current && finalize(penResultRef.current)}
@@ -669,6 +670,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           mode="inGame"
           pens={{ ...igPen, turn: igPen.att, score: [0, 0], home: [], away: [], round: 0, done: false }}
           homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
+          homeMgr={homeMgr} awayMgr={awayMgr}
           controllable={controllable} isLocal={isLocal} isHost={controller} canFinish={false}
           onAim={(v) => igPenChoose("aim", v)} onGk={(v) => igPenChoose("gk", v)} onResolve={igPenCommit}
           onLeave={onLeave}
@@ -909,59 +911,118 @@ function isPenDecided(h, a, score) {
 const AIM_POS = { cantoE: { x: 20, y: 26 }, meio: { x: 50, y: 40 }, cantoD: { x: 80, y: 26 } };
 const GK_SHIFT = { cantoE: -64, meio: 0, cantoD: 64 };
 
-function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllable, isLocal, isHost, canFinish, onAim, onGk, onResolve, onContinue, onLeave, mode = "shootout" }) {
+// Tempos da CENA (puro visual — não muda o resultado, já calculado pela seed).
+const PEN_ARM_MS = { shootout: 720, inGame: 950 }; // clima/posicionamento antes de liberar a escolha
+const PEN_SET_MS = 720;        // suspense depois que os dois decidem, antes da corrida
+const PEN_SHOOT_MS = 1040;     // corrida + voo da bola + mergulho (câmera lenta)
+const PEN_RESULT_HOLD_MS = 980; // o veredito "respira" antes de o host avançar o estado
+const PEN_RING_C = 289;        // circunferência do anel (r=46): 2π·46
+
+// Texto de aposta da cobrança atual (SÓ disputa; cosmético). As condições espelham
+// isPenDecided (inalcançável), então nunca afirmam algo falso na fase regulamentar.
+function penStakes(pens) {
+  if (!pens || pens.done || pens.animating) return null;
+  const { home, away, score, turn } = pens;
+  if (home.length >= 5 && away.length >= 5) return { kind: "sd", text: "Morte súbita" };
+  const sd = turn === "home" ? home.length : away.length;
+  const od = turn === "home" ? away.length : home.length;
+  const sScore = turn === "home" ? score[0] : score[1];
+  const oScore = turn === "home" ? score[1] : score[0];
+  const remSAfter = Math.max(0, 5 - (sd + 1)); // cobranças minhas restantes APÓS esta
+  const remO = Math.max(0, 5 - od);            // cobranças do adversário restantes
+  if (sScore + 1 > oScore + remO) return { kind: "clinch", text: "Se marcar, classifica ✓" };
+  if (oScore > sScore + remSAfter) return { kind: "must", text: "Tem que marcar pra seguir vivo" };
+  return null;
+}
+
+function Penalties({ pens, homeName, awayName, homeColor, awayColor, homeMgr, awayMgr, controllable, isLocal, isHost, canFinish, onAim, onGk, onResolve, onContinue, onLeave, mode = "shootout" }) {
   const inGame = mode === "inGame";
   const lk = pens.lastKick;
-  const [phase, setPhase] = useState("idle"); // idle | shoot | result
-  const [, setClock] = useState(0); // re-render p/ a contagem regressiva
-  // Contagem regressiva pelo relógio DESTE aparelho (host e cliente), zerada a cada
-  // cobrança — imune à diferença de horário entre máquinas (corrige o bug do "226s").
+  const [phase, setPhase] = useState("idle"); // idle | set | shoot | result (só durante animação)
+  const [, setClock] = useState(0); // re-render p/ anel/contagem
   const TIMER_MS = inGame ? IG_PEN_TIMER_MS : PEN_TIMER_MS;
+  const ARM_MS = inGame ? PEN_ARM_MS.inGame : PEN_ARM_MS.shootout;
+  // Relógios DESTE aparelho (host e cliente), zerados a cada cobrança — imunes à diferença
+  // de horário entre máquinas (corrige o bug do "226s"). O clima (arming) atrasa a liberação
+  // da escolha e o início do anel; nada disso toca a lógica nem o prazo do motor.
   const dlRef = useRef({ key: null, at: 0 });
+  const armRef = useRef({ key: null, until: 0 });
+  const resolvedRef = useRef(null); // garante 1 onResolve por cobrança (host)
   const dlKey = inGame ? pens.id : pens.round;
-  if (!pens.done && !pens.animating && dlRef.current.key !== dlKey) {
-    dlRef.current = { key: dlKey, at: Date.now() + TIMER_MS };
+  if (!pens.done && !pens.animating && armRef.current.key !== dlKey) {
+    const now = Date.now();
+    armRef.current = { key: dlKey, until: now + ARM_MS };
+    dlRef.current = { key: dlKey, at: now + ARM_MS + TIMER_MS };
   }
 
-  // anima quando chega um novo lance; ao fim, o anfitrião registra o resultado
+  // Host: avança o estado UMA vez por cobrança (idempotente p/ skip + timeout).
+  const doResolve = () => {
+    if (!isHost || !onResolve) return;
+    if (resolvedRef.current === (lk?.id ?? "none")) return;
+    resolvedRef.current = lk?.id ?? "none";
+    onResolve();
+  };
+
+  // Anima quando chega um novo lance: suspense → corrida/voo (câmera lenta) → veredito.
+  // O host avança o estado só depois do veredito respirar (PEN_RESULT_HOLD_MS).
   useEffect(() => {
     if (!pens.animating || !lk) { setPhase("idle"); return; }
-    setPhase("shoot");
-    const t1 = setTimeout(() => setPhase("result"), 850);
-    const t2 = isHost ? setTimeout(() => onResolve(), 1250) : null;
-    return () => { clearTimeout(t1); if (t2) clearTimeout(t2); };
+    setPhase("set");
+    const t1 = setTimeout(() => setPhase("shoot"), PEN_SET_MS);
+    const t2 = setTimeout(() => setPhase("result"), PEN_SET_MS + PEN_SHOOT_MS);
+    const t3 = isHost ? setTimeout(doResolve, PEN_SET_MS + PEN_SHOOT_MS + PEN_RESULT_HOLD_MS) : null;
+    return () => { clearTimeout(t1); clearTimeout(t2); if (t3) clearTimeout(t3); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lk?.id, pens.animating]);
 
-  // tique da contagem regressiva enquanto se escolhe
+  // Tique do anel/contagem enquanto se escolhe (e durante o clima).
   useEffect(() => {
     if (pens.done || pens.animating) return;
-    const id = setInterval(() => setClock((n) => n + 1), 200);
+    const id = setInterval(() => setClock((n) => n + 1), 100);
     return () => clearInterval(id);
-  }, [pens.done, pens.animating, pens.round]);
+  }, [pens.done, pens.animating, pens.round, pens.id]);
 
+  const now = Date.now();
   const shooting = pens.turn;
   const goalie = shooting === "home" ? "away" : "home";
   const shooterColor = shooting === "home" ? homeColor : awayColor;
+  const shootingTeamName = shooting === "home" ? homeName : awayName;
+  const shootingMgr = shooting === "home" ? homeMgr : awayMgr;
   // desfecho (gol/defesa/fora). Fallback p/ a disputa (sem outcome): scored? gol : defesa.
   const outcome = lk?.outcome || (lk ? (lk.scored ? "goal" : "save") : "goal");
-  // se foi PRA FORA, a bola sai do gol (lado/alto); senão vai pro canto mirado.
   const target = !lk ? AIM_POS.meio
     : outcome === "miss"
       ? { x: lk.aim === "cantoE" ? 3 : lk.aim === "cantoD" ? 97 : 50, y: lk.aim === "meio" ? 2 : 6 }
       : AIM_POS[lk.aim];
   const gkShift = lk ? GK_SHIFT[lk.gkDir] : 0;
-  const animating = pens.animating && phase !== "idle";
+  const kicking = phase === "shoot" || phase === "result"; // bola/cobrador/goleiro em movimento
   const showResult = phase === "result" && lk;
+
   const choosing = !pens.done && !pens.animating;
+  const armed = choosing && now >= armRef.current.until;
+  const arming = choosing && !armed; // clima de pressão antes de liberar a escolha
 
   // lados que ESTE aparelho controla nesta cobrança
   const iShoot = (controllable || []).includes(shooting);
   const iGoalie = (controllable || []).includes(goalie);
-  const needAim = iShoot && pens.picks?.aim == null;
-  const needGk = iGoalie && pens.picks?.gk == null;
-  const remain = (!pens.done && !pens.animating) ? Math.max(0, Math.ceil((dlRef.current.at - Date.now()) / 1000)) : null;
-  const shootingTeamName = shooting === "home" ? homeName : awayName;
+  const aimLocked = pens.picks?.aim != null; // batedor já travou (NÃO revela o lado)
+  const gkLocked = pens.picks?.gk != null;   // goleiro já travou (NÃO revela o lado)
+  const needAim = iShoot && !aimLocked;
+  const needGk = iGoalie && !gkLocked;
+
+  // anel: fração do tempo restante (0..1); urgente nos últimos 2s
+  const remainMs = Math.max(0, dlRef.current.at - now);
+  const remain = choosing ? Math.max(0, Math.ceil(remainMs / 1000)) : null;
+  const frac = choosing ? Math.max(0, Math.min(1, remainMs / TIMER_MS)) : 1;
+  const urgent = choosing && armed && remainMs <= 2000;
+
+  const statusLine =
+    aimLocked && gkLocked ? "Os dois confirmaram — vai a cobrança!" :
+    aimLocked ? "Batedor confirmou ✓ · esperando o goleiro…" :
+    gkLocked ? "Goleiro confirmou ✓ · esperando o batedor…" :
+    "Esperando as duas escolhas…";
+
+  const stakes = inGame ? null : penStakes(pens);
 
   const dots = (arr, n = 5) => {
     const out = [];
@@ -969,121 +1030,201 @@ function Penalties({ pens, homeName, awayName, homeColor, awayColor, controllabl
     return out;
   };
 
+  const skipAnim = () => { setPhase("result"); doResolve(); };
+
+  const AIM_BTNS = [["cantoE", "↖", "Esquerda"], ["meio", "⬆", "Meio"], ["cantoD", "↗", "Direita"]];
+  const GK_BTNS = [["cantoE", "🧤", "Pular ←"], ["meio", "🧤", "Centro"], ["cantoD", "🧤", "Pular →"]];
+
   return (
-    <div className="pen-overlay">
-      <div className="pen-card">
-        <span className={`pen-eyebrow ${inGame ? "ingame" : ""}`}>{inGame ? "⚽ Pênalti!" : "Disputa de pênaltis"}</span>
-        {choosing && remain != null && (
-          <div className={`pen-bigtimer ${remain <= 1 ? "urgent" : ""}`} key={"t" + remain}>{remain}</div>
-        )}
+    <div className={`pen-overlay ${arming ? "arming" : ""}`}>
+      <div className={`pen-card ${inGame ? "ingame" : ""} ${showResult ? "v-" + outcome : ""}`}>
+        {showResult && outcome === "goal" && <div className="pen-cardflash" />}
+
+        <div className={`pen-title ${inGame ? "ingame" : ""} ${inGame && arming ? "impact" : ""}`}>
+          {inGame ? "PÊNALTI!" : "DISPUTA DE PÊNALTIS"}
+        </div>
+
+        {/* PLACAR REAL — escudo + nome dos dois lados, sem "ST/B1" */}
         {!inGame && (
-          <div className="pen-score">
-            <span className="pen-name">{homeName}</span>
-            <span className="pen-nums"><b style={{ color: "#C7A24A" }}>{pens.score[0]}</b><i>—</i><b>{pens.score[1]}</b></span>
-            <span className="pen-name">{awayName}</span>
+          <div className="pen-board">
+            {["home", "away"].map((side) => {
+              const arr = side === "home" ? pens.home : pens.away;
+              const nm = side === "home" ? homeName : awayName;
+              const col = side === "home" ? homeColor : awayColor;
+              const mgr = side === "home" ? homeMgr : awayMgr;
+              const sc = side === "home" ? pens.score[0] : pens.score[1];
+              const isTurn = choosing && shooting === side;
+              return (
+                <div key={side} className={`pen-team ${isTurn ? "turn" : ""}`} style={{ "--c": col }}>
+                  <TeamBadge mgr={mgr} name={nm} color={col} />
+                  <span className="pen-team-name">{nm}</span>
+                  <div className="pen-dots">
+                    {dots(arr).map((d, i) => (
+                      <span
+                        key={`${i}-${d}`}
+                        className={`pen-dot ${d} ${isTurn && i === arr.length ? "current" : ""} ${i === arr.length - 1 && d !== "pending" ? "pop" : ""}`}
+                      >{d === "scored" ? "✓" : d === "missed" ? "✗" : ""}</span>
+                    ))}
+                  </div>
+                  <b className="pen-team-score">{sc}</b>
+                </div>
+              );
+            })}
+            {stakes && <div className={`pen-stakes ${stakes.kind}`}>{stakes.text}</div>}
           </div>
         )}
 
         {/* CENA ANIMADA */}
-        <div className="pen-scene">
+        <div className={`pen-scene ${arming ? "arming" : ""} ${phase === "set" ? "suspense" : ""} ${phase === "shoot" ? "slowmo" : ""}`}>
           <div className="pen-grass" />
-          {/* gol */}
           <div className="pen-goalframe">
             <span className="pen-post l" /><span className="pen-post r" /><span className="pen-bar" />
-            <span className="pen-mesh" />
+            <span className={`pen-mesh ${showResult && outcome === "goal" ? "shake" : ""}`} />
           </div>
-          {/* goleiro */}
           <div
             key={"gk" + (lk?.id || 0)}
-            className={`pen-keeper ${animating ? "dive" : ""}`}
+            className={`pen-keeper ${kicking ? "dive" : ""}`}
             style={{ "--gx": gkShift + "px", "--gr": (gkShift < 0 ? -22 : gkShift > 0 ? 22 : 0) + "deg" }}
           >
             <span className="pen-kp-arm la" /><span className="pen-kp-arm ra" />
             <span className="pen-kp-head" /><span className="pen-kp-body" />
           </div>
-          {/* bola */}
           <div
             key={"ball" + (lk?.id || 0)}
-            className={`pen-ball2 ${animating ? "shot" : ""}`}
+            className={`pen-ball2 ${kicking ? "shot" : ""}`}
             style={{ "--tx": target.x + "%", "--ty": target.y + "%" }}
           />
-          {/* cobrador */}
-          <div key={"kik" + (lk?.id || 0)} className={`pen-kicker ${animating ? "kick" : ""}`}>
+          <div key={"kik" + (lk?.id || 0)} className={`pen-kicker ${kicking ? "kick" : ""}`}>
             <span className="pen-kk-head" /><span className="pen-kk-body" style={{ background: shooterColor }} /><span className="pen-kk-leg" />
           </div>
-          {/* etiqueta */}
+
           {showResult ? (
-            <div className={`pen-flash ${outcome === "goal" ? "goal" : "save"}`}>{outcome === "goal" ? "GOL!" : outcome === "save" ? "DEFENDEU!" : "PRA FORA!"}</div>
+            <div className={`pen-flash ${outcome}`}>{outcome === "goal" ? "GOL!" : outcome === "save" ? "DEFENDEU!" : "PRA FORA!"}</div>
+          ) : phase === "set" ? (
+            <div className="pen-shooting suspense">Respira…</div>
           ) : choosing ? (
-            <div className="pen-shooting">Cobrando: <b style={{ color: shooterColor }}>{shootingTeamName}</b>{remain != null && <span className="pen-countdown">{remain}s</span>}</div>
+            <div className="pen-shooting">
+              Cobra: <TeamBadge mgr={shootingMgr} name={shootingTeamName} color={shooterColor} />
+              <b style={{ color: shooterColor }}>{shootingTeamName}</b>
+            </div>
           ) : (
-            <div className="pen-shooting">Cobrando…</div>
+            <div className="pen-shooting">Cobrança…</div>
           )}
         </div>
 
-        {!inGame && (
-          <div className="pen-rows">
-            <div className="pen-row"><span className="pen-tag" style={{ color: homeColor }}>{badge(homeName)}</span><div className="pen-dots">{dots(pens.home).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
-            <div className="pen-row"><span className="pen-tag" style={{ color: awayColor }}>{badge(awayName)}</span><div className="pen-dots">{dots(pens.away).map((d, i) => <span key={i} className={`pen-dot ${d}`} />)}</div></div>
+        {/* DECISÃO — papéis, anel, selos, botões grandes */}
+        {choosing && (
+          <div className="pen-decide">
+            <div className="pen-roles">
+              {iShoot && <span className="pen-role shoot">⚽ Você cobra</span>}
+              {iGoalie && <span className="pen-role defend">🧤 Você defende</span>}
+              {!iShoot && !iGoalie && <span className="pen-role watch">👁 Assistindo</span>}
+            </div>
+
+            {/* anel que esvazia ao redor da bola (em vez de um número solto) */}
+            <div className={`pen-ringwrap ${urgent ? "urgent" : ""}`}>
+              <svg className="pen-ring" viewBox="0 0 100 100" aria-hidden="true">
+                <circle className="pen-ring-bg" cx="50" cy="50" r="46" />
+                <circle
+                  className="pen-ring-fg" cx="50" cy="50" r="46"
+                  style={{ strokeDasharray: PEN_RING_C, strokeDashoffset: PEN_RING_C * (1 - frac) }}
+                />
+              </svg>
+              <span className="pen-ring-ball">⚽</span>
+              {armed && <span className="pen-ring-num">{remain}</span>}
+            </div>
+
+            {/* dois selos: BATEDOR e GOLEIRO — acendem com ✓ ao travar (sem revelar o lado) */}
+            <div className="pen-seals">
+              <div className={`pen-seal ${aimLocked ? "locked" : ""} ${iShoot ? "mine" : ""}`} key={"sa" + aimLocked}>
+                <span className="pen-seal-icon">{aimLocked ? "✓" : "⚽"}</span>
+                <span className="pen-seal-role">Batedor</span>
+                <span className="pen-seal-state">{aimLocked ? "Pronto" : "Escolhendo…"}</span>
+              </div>
+              <div className={`pen-seal ${gkLocked ? "locked" : ""} ${iGoalie ? "mine" : ""}`} key={"sg" + gkLocked}>
+                <span className="pen-seal-icon">{gkLocked ? "✓" : "🧤"}</span>
+                <span className="pen-seal-role">Goleiro</span>
+                <span className="pen-seal-state">{gkLocked ? "Pronto" : "Escolhendo…"}</span>
+              </div>
+            </div>
+            <div className="pen-statusline">{statusLine}</div>
+
+            {arming ? (
+              <div className="pen-armmsg">Na marca do pênalti…</div>
+            ) : (
+              <>
+                {needAim && (
+                  <div className="pen-pickrow">
+                    {AIM_BTNS.map(([k, ic, l]) => (
+                      <button key={k} className="pen-pick shoot" onClick={() => onAim(k)}>
+                        <span className="pen-pick-ic">{ic}</span><span className="pen-pick-l">{l}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {needGk && (
+                  <div className="pen-pickrow def">
+                    {GK_BTNS.map(([k, ic, l]) => (
+                      <button key={k} className="pen-pick defend" onClick={() => onGk(k)}>
+                        <span className="pen-pick-ic">{ic}</span><span className="pen-pick-l">{l}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!needAim && !needGk && (
+                  <div className="pen-youready">
+                    {(controllable?.length === 0)
+                      ? "Os técnicos estão decidindo…"
+                      : "Sua escolha está travada ✓ — segura o coração…"}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
-        {/* ESCOLHAS — cobrador e goleiro, em paralelo, com timer de 3s */}
-        {choosing && needAim && (
-          <div className="pen-aim">
-            <div className="pen-aim-label">Você cobra — escolha o canto {remain != null && `(${remain}s)`}</div>
-            {[["cantoE", "↖ Canto"], ["meio", "↑ Meio"], ["cantoD", "↗ Canto"]].map(([k, l]) => (
-              <button key={k} className="pen-aim-btn" onClick={() => onAim(k)}>{l}</button>
-            ))}
-          </div>
-        )}
-        {choosing && needGk && (
-          <div className="pen-aim pen-aim-defend">
-            <div className="pen-aim-label">Você defende — escolha o mergulho {remain != null && `(${remain}s)`}</div>
-            {[["cantoE", "↖ Mergulhar"], ["meio", "↑ Ficar no meio"], ["cantoD", "↗ Mergulhar"]].map(([k, l]) => (
-              <button key={k} className="pen-aim-btn pen-def-btn" onClick={() => onGk(k)}>{l}</button>
-            ))}
-          </div>
-        )}
-        {choosing && !needAim && !needGk && (
-          <div className="pen-wait">
-            {controllable?.length === 0
-              ? `Aguardando os técnicos… ${remain != null ? remain + "s" : ""}`
-              : `Escolha feita! Aguardando o adversário… ${remain != null ? remain + "s" : ""}`}
-          </div>
-        )}
-        {/* válvula de saída: se travou (host caiu durante o pênalti em jogo), permite sair */}
-        {inGame && !isHost && !pens.animating && pens.deadline && Date.now() > pens.deadline + 6000 && onLeave && (
+        {/* válvula de saída: se travou (host caiu durante o pênalti em jogo), permite sair.
+            Usa o relógio LOCAL (dlRef, armado quando este aparelho vê a cobrança) e não o
+            prazo do host — imune à diferença de horário entre máquinas (mesma classe do "226s"). */}
+        {inGame && !isHost && !pens.animating && dlRef.current.key === dlKey && now > dlRef.current.at + 6000 && onLeave && (
           <div className="pen-actions">
             <div className="pen-elim">Conexão com o anfitrião perdida.</div>
-            <button className="pen-aim-btn pen-def-btn" onClick={onLeave}>Sair pro Lobby</button>
+            <button className="pen-btn ghost" onClick={onLeave}>Sair pro Lobby</button>
           </div>
         )}
-        {pens.animating && <div className="pen-wait">Cobrança!</div>}
+
+        {pens.animating && (
+          <button className="pen-skip" onClick={skipAnim}>Pular animação ⏭</button>
+        )}
+
         {pens.done && (() => {
           const penWinner = pens.score[0] > pens.score[1] ? "home" : "away";
           const winnerName = penWinner === "home" ? homeName : awayName;
           const winnerColor = penWinner === "home" ? homeColor : awayColor;
+          const winnerMgr = penWinner === "home" ? homeMgr : awayMgr;
           const iWon = isLocal || controllable?.includes(penWinner);
           return (
             <>
               <div className="pen-done">Decidido nos pênaltis!</div>
-              <div className="pen-winner" style={{ color: winnerColor }}>{winnerName} vence!</div>
+              <div className="pen-winner" style={{ color: winnerColor }}>
+                <TeamBadge mgr={winnerMgr} name={winnerName} color={winnerColor} />
+                <span>{winnerName} vence!</span>
+              </div>
               <div className="pen-actions">
                 {isLocal ? (
-                  <button className="pen-aim-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
+                  <button className="pen-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
                 ) : iWon ? (
                   canFinish
-                    ? <button className="pen-aim-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
+                    ? <button className="pen-btn" onClick={onContinue}>Continuar para a próxima partida →</button>
                     : <div className="pen-wait">Aguardando a próxima partida…</div>
                 ) : (
                   <>
                     <div className="pen-elim">Você foi eliminado</div>
                     {canFinish && (
-                      <button className="pen-aim-btn" onClick={onContinue}>Avançar torneio (espectador)</button>
+                      <button className="pen-btn" onClick={onContinue}>Avançar torneio (espectador)</button>
                     )}
                     {onLeave && (
-                      <button className="pen-aim-btn pen-def-btn" onClick={onLeave}>Sair pro Lobby</button>
+                      <button className="pen-btn ghost" onClick={onLeave}>Sair pro Lobby</button>
                     )}
                   </>
                 )}
