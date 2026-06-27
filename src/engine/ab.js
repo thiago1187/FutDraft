@@ -15,9 +15,10 @@ const SLOTS = [
   ["GOL", "GK"], ["LE", "DEF"], ["ZAG", "DEF"], ["ZAG", "DEF"], ["LD", "DEF"],
   ["VOL", "MID"], ["MC", "MID"], ["MEI", "MID"], ["PE", "ATT"], ["CA", "ATT"], ["PD", "ATT"],
 ];
-export const NEUTRAL = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4 };
+export const NEUTRAL = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4, attackSide: "meio", manMark: null };
 
-// 11 tokens num dado over, com boost por setor (ATT/DEF/MID/GK) ou defOvr fixo.
+// 11 tokens num dado over, com boost por setor (ATT/DEF/MID/GK), defOvr fixo, ou
+// override por POSIÇÃO (set: { LE: 62, PE: 64, ... }) p/ testar flancos.
 export function tokens(ovr, boost = {}) {
   return SLOTS.map(([detail, pos], i) => {
     let o = ovr;
@@ -26,6 +27,7 @@ export function tokens(ovr, boost = {}) {
     if (pos === "GK" && boost.GK) o += boost.GK;
     if (pos === "MID" && boost.MID) o += boost.MID;
     if (pos === "DEF" && boost.defOvr != null) o = boost.defOvr;
+    if (boost.set && boost.set[detail] != null) o = boost.set[detail];
     return { id: "t" + i, detail, pos, ovr: Math.max(40, Math.min(99, o)), stamina: 100, out: false };
   });
 }
@@ -78,7 +80,7 @@ function liveTeam(ovr, boost) {
 // Roda N partidas ao vivo (bot×bot) com a tática tH no MANDANTE (away neutro) e devolve
 // as médias das métricas do mandante. homeBoost = boost de over por setor no mandante.
 export function liveAB(tH, N, homeBoost) {
-  const acc = { fouls: 0, cards: 0, passAtt: 0, passOk: 0, poss: 0, gf: 0, ga: 0, shots: 0 };
+  const acc = { fouls: 0, cards: 0, passAtt: 0, passOk: 0, poss: 0, gf: 0, ga: 0, shots: 0, xgL: 0, xgC: 0, xgR: 0 };
   let foulsSq = 0;
   for (let i = 0; i < N; i++) {
     const eng = createLiveMatch(liveTeam(80, homeBoost), liveTeam(80), {
@@ -99,10 +101,13 @@ export function liveAB(tH, N, homeBoost) {
     acc.passAtt += s.stats.passAtt[0]; acc.passOk += s.stats.passOk[0];
     const tp = s.stats.possession[0] + s.stats.possession[1] || 1; acc.poss += s.stats.possession[0] / tp;
     acc.gf += s.score[0]; acc.ga += s.score[1]; acc.shots += s.stats.shots[0];
+    acc.xgL += s.stats.xgSide[0][0]; acc.xgC += s.stats.xgSide[0][1]; acc.xgR += s.stats.xgSide[0][2];
   }
   const m = {};
   for (const k in acc) m[k] = acc[k] / N;
   m.passPct = acc.passOk / (acc.passAtt || 1);
   m.foulsSE = Math.sqrt(Math.max(0, foulsSq / N - m.fouls * m.fouls) / N);
+  const xgTot = acc.xgL + acc.xgC + acc.xgR || 1;
+  m.xgShareEsq = acc.xgL / xgTot; m.xgShareCentro = acc.xgC / xgTot; m.xgShareDir = acc.xgR / xgTot;
   return m;
 }

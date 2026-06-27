@@ -290,6 +290,38 @@ function calibAB() {
     console.log(`  reatividade: [${r1 ? "OK" : "✗"}] gol↑P  [${r2 ? "OK" : "✗"}] expulsão↓P  [${r3 ? "OK" : "✗"}] relógio→líder  [${r4 ? "OK" : "✗"}] sem mando 50%  [${r5 ? "OK" : "✗"}] ΣP=1`);
     pass &= r1 && r2 && r3 && r4 && r5;
   }
+
+  console.log("\n§6 ALAVANCAS NOVAS (tactics-v2):");
+  {
+    // Foco de ataque / lado preferido — a parcela de xG do lado escolhido sobe.
+    const neu = liveAB({ attackSide: "meio" }, N), dir = liveAB({ attackSide: "dir" }, N), esq = liveAB({ attackSide: "esq" }, N);
+    pass &= abLine("Lado=Direita", "% xG pela direita", neu.xgShareDir, dir.xgShareDir, +1, dir.xgShareDir - neu.xgShareDir > 0.04);
+    pass &= abLine("Lado=Esquerda", "% xG pela esquerda", neu.xgShareEsq, esq.xgShareEsq, +1, esq.xgShareEsq - neu.xgShareEsq > 0.04);
+    // Matchup condicional: atacar o flanco DEFENSIVO fraco do rival rende mais xG (λ).
+    const home = tokens(80);
+    const weakL = tokens(80, { set: { LE: 60, PE: 62 } });   // adversário fraco na esquerda
+    const strongL = tokens(80, { set: { LE: 92, PE: 90 } });  // adversário forte na esquerda
+    const lamWeak = lambdas(home, weakL, { attackSide: "dir" }).home;   // ataco a direita = esquerda deles
+    const lamStrong = lambdas(home, strongL, { attackSide: "dir" }).home;
+    pass &= abLine("Atacar flanco fraco", "λ criado (xG)", lamStrong, lamWeak, +1, lamWeak - lamStrong > 0.03);
+    console.log(`  → atacar o lado fraco do rival rende ${((lamWeak / lamStrong - 1) * 100).toFixed(0)}% mais xG que o lado forte (condicional ✓)`);
+
+    // Marcação individual no craque — corta a criação do marcado (λ do rival cai) c/ custo.
+    const meId = tokens(80);
+    const star = tokens(80, { set: { CA: 95 } });    // adversário com craque (CA 95)
+    const base = lambdas(meId, star).away;
+    const marked = lambdas(meId, star, { manMark: "t9" }).away;     // marco o craque (CA = id t9)
+    pass &= abLine("Marcar o craque", "λ do rival (xG dele)", base, marked, -1, base - marked > 0.03);
+    const myBase = lambdas(meId, star).home;
+    const myCost = lambdas(meId, star, { manMark: "t9" }).home;     // meu λ paga o custo
+    pass &= abLine("  custo da marcação", "meu λ (xG)", myBase, myCost, -1, myBase - myCost > 0.01);
+    // escala com a decisividade: marcar um craque 95 corta mais que marcar um 82
+    const star82 = tokens(80, { set: { CA: 82 } });
+    const cut95 = base - marked;
+    const cut82 = lambdas(meId, star82).away - lambdas(meId, star82, { manMark: "t9" }).away;
+    pass &= abLine("Decisividade do alvo", "corte (95 vs 82)", cut82, cut95, +1, cut95 - cut82 > 0.01);
+    console.log(`  → marcar craque 95 corta ${(cut95 / Math.max(cut82, 1e-9)).toFixed(1)}× mais xG que marcar um 82 (escala c/ decisividade ✓)`);
+  }
   return !!pass;
 }
 

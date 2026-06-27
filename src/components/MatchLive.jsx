@@ -566,7 +566,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
                 ))}
               </div>
             )}
-            <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} ratings={teamRatings((mySide === "home" ? home : away).squad)} />
+            <TacticsLive side={mySide} tactics={view.tactics} locked={!canControl(mySide)} onApply={applyTactics} sideColor={sideColor} ratings={teamRatings((mySide === "home" ? home : away).squad)} oppPlayers={view.tokens?.[otherSide(mySide)] || []} />
           </div>
         </div>
       )}
@@ -775,15 +775,16 @@ function StatRow({ label, h, a, hc, ac, pctMode }) {
 const POSTURES = [["defensivo", "Def"], ["equilibrado", "Eq"], ["ofensivo", "Ofen"]];
 const LINES = [["baixa", "Baixa"], ["media", "Média"], ["alta", "Alta"]];
 const MARKING = [["leve", "Leve"], ["pressao", "Pressão alta"]];
+const ATTACK_FOCUS = [["esq", "Esquerda"], ["meio", "Meio"], ["dir", "Direita"]];
 
-function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
+function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings, oppPlayers }) {
   const cur = tactics?.[side] || {};
   const [pending, setPending] = useState(cur);
   // ressincroniza quando troca de lado
   const sideRef = useRef(side);
   if (sideRef.current !== side) { sideRef.current = side; if (pending !== cur) setPending(cur); }
 
-  const dirty = ["posture", "line", "build", "marking"].some((k) => pending[k] !== cur[k]);
+  const dirty = ["posture", "line", "build", "marking", "attackSide", "manMark"].some((k) => pending[k] !== cur[k]);
   function set(k, v) { if (!locked) setPending((p) => ({ ...p, [k]: v })); }
   function applyPreset(p) { if (!locked) setPending((cur2) => ({ ...cur2, posture: p.posture, line: p.line, marking: p.marking, build: p.build })); }
   const build = pending.build ?? 0.4;
@@ -814,6 +815,21 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings }) {
         </div>
       </div>
       <Seg label="Pressão" options={MARKING} value={pending.marking} onPick={(v) => set("marking", v)} />
+
+      <div className="mlf-seg-label mlf-adv-label">Avançado</div>
+      <Seg label="Foco de ataque" options={ATTACK_FOCUS} value={pending.attackSide || "meio"} onPick={(v) => set("attackSide", v)} />
+
+      <div className="mlf-seg-block">
+        <div className="mlf-seg-label">Marcação individual (anular um craque adversário)</div>
+        <div className="mlf-mark-list">
+          <button className={`mlf-mark ${!pending.manMark ? "sel" : ""}`} disabled={locked} onClick={() => set("manMark", null)}>Nenhuma</button>
+          {(oppPlayers || []).filter((p) => !p.out && p.pos !== "GK").sort((a, b) => b.ovr - a.ovr).slice(0, 8).map((p) => (
+            <button key={p.id} className={`mlf-mark ${pending.manMark === p.id ? "sel" : ""}`} disabled={locked} onClick={() => set("manMark", p.id)}>
+              {lastName(p.name)} <span className="mlf-mark-ovr">{p.ovr}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* ENCAIXE estilo × elenco */}
       {synergy.length > 0 && (

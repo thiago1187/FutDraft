@@ -7,7 +7,7 @@
 // Gol da casa em x=0; gol do visitante em x=100. Boca do gol: y ∈ [38,62].
 
 import { teamRatings } from "./match.js";
-import { computeLambdas, effOvr } from "./rates.js";
+import { computeLambdas, effOvr, flankStrength } from "./rates.js";
 import { randomSeed, gaussian } from "./rng.js";
 
 const MATCH_MS_1X = 110000; // 90' em ~110s a 1× (~1,2s por minuto) — dá pra acompanhar
@@ -38,16 +38,16 @@ function basePositions(team, side) {
   });
 }
 
-const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4 };
+const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4, attackSide: "meio", manMark: null };
 
-// Desfecho do pênalti a partir do DUELO de cantos (cobrador × goleiro) + qualidade do
-// batedor (prob). Goleiro acertou o canto → defesa provável; errou → quase certo o gol.
-// Calibrado p/ ~67% de conversão com escolhas aleatórias (goleiro acerta ~1/3). Puro
-// (recebe rng) → usado pelo jogo e medido no harness.
-export function penaltyScored(prob, aim, gkDir, rng) {
+// Desfecho do pênalti = SÓ SORTE + duelo de cantos (NÃO depende da qualidade do
+// batedor). Goleiro no MESMO canto → defesa provável (~70%); canto errado → quase
+// sempre gol (~85%, mas dá pra errar o chute). Com escolhas aleatórias (goleiro
+// acerta ~1/3) → conversão ~67%. Puro (recebe rng) → usado pelo jogo e medido no harness.
+// O 1º parâmetro é mantido por compatibilidade de assinatura, mas é IGNORADO.
+export function penaltyScored(_prob, aim, gkDir, rng) {
   const matched = aim === gkDir;
-  const p = matched ? prob * 0.38 : Math.min(prob * 1.10, 0.95);
-  return rng() < p;
+  return rng() < (matched ? 0.30 : 0.85);
 }
 
 export function createLiveMatch(home, away, opts = {}) {
@@ -91,7 +91,7 @@ export function createLiveMatch(home, away, opts = {}) {
     lastEvent: null,
     cinematic: null,
     penaltyPending: null, // pênalti EM JOGO aguardando cobrança (resolvido pela UI); { att, def, taker, picks, deadline, animating, lastKick, id }
-    stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0], passAtt: [0, 0], passOk: [0, 0] },
+    stats: { possession: [0, 0], shots: [0, 0], onTarget: [0, 0], corners: [0, 0], fouls: [0, 0], passAtt: [0, 0], passOk: [0, 0], xgSide: [[0, 0, 0], [0, 0, 0]] },
     ready: { home: !!cpu.home, away: !!cpu.away },
     started: !!(cpu.home && cpu.away), // bot×bot começa na hora; senão espera o ready-gate
     preReady: { home: !!cpu.home, away: !!cpu.away }, // CPU já entra pronta
@@ -130,6 +130,23 @@ export function createLiveMatch(home, away, opts = {}) {
   // ---------- helpers de domínio ----------
   const other = (s) => (s === "home" ? "away" : "home");
   const idx = (s) => (s === "home" ? 0 : 1);
+  // Corredor de origem da chance (0=esq, 1=centro, 2=dir), ponderado pela força dos
+  // flancos + um forte empurrão para o LADO PREFERIDO (foco de ataque, Alavanca 1).
+  function chanceSide(side) {
+    const tok = state.tokens[side];
+    const w = [
+      Math.max(2, flankStrength(tok, "esq", "att") - 48),
+      Math.max(2, flankStrength(tok, "centro", "att") - 48),
+      Math.max(2, flankStrength(tok, "dir", "att") - 48),
+    ];
+    const focus = state.tactics[side].attackSide;
+    if (focus === "esq") w[0] *= 3.4;
+    else if (focus === "dir") w[2] *= 3.4;
+    const tot = w[0] + w[1] + w[2];
+    let r = rnd(tot);
+    for (let i = 0; i < 3; i++) { r -= w[i]; if (r <= 0) return i; }
+    return 1;
+  }
   const attGoalX = (s) => (s === "home" ? 100 : 0);
   const ownGoalX = (s) => (s === "home" ? 0 : 100);
   const ballProgress = (s) => (s === "home" ? state.ball.x / 100 : (100 - state.ball.x) / 100);
@@ -561,6 +578,7 @@ export function createLiveMatch(home, away, opts = {}) {
     const quality = clamp(0.7 + (sh - 70) / 110 + (bp - 0.78) * 0.6, 0.35, 1.7);
     const pGoal = clamp((state.lam[poss] / shotVol(poss)) * GOAL_K * quality * gkFactor, 0.01, 0.85);
     state.xg[pi] += pGoal;
+    state.stats.xgSide[pi][chanceSide(poss)] += pGoal; // de qual corredor nasceu a chance
     logXg();
 
     const fromX = shooter.x, fromY = shooter.y;

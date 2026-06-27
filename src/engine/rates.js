@@ -33,6 +33,36 @@ export function sectorStrength(tokens, kind) {
   return den ? num / den : 70;
 }
 
+// Força por CORREDOR (esq/dir/centro) — quem joga naquele flanco. Usado pelo "foco de
+// ataque / lado preferido" (Alavanca 1): concentrar num lado confronta a DEFESA do
+// flanco oposto do adversário, então dá pra atacar o lado fraco do rival (matchup).
+const FLANK_W = {
+  esq: {
+    att: { PE: 1.0, ME: 0.7, LE: 0.55, MEI: 0.22, MC: 0.15, CA: 0.25, VOL: 0.1 },
+    def: { LE: 1.0, ZAG: 0.4, VOL: 0.25, MEI: 0.12, GOL: 0.15 },
+  },
+  dir: {
+    att: { PD: 1.0, MD: 0.7, LD: 0.55, MEI: 0.22, MC: 0.15, CA: 0.25, VOL: 0.1 },
+    def: { LD: 1.0, ZAG: 0.4, VOL: 0.25, MEI: 0.12, GOL: 0.15 },
+  },
+  centro: {
+    att: { CA: 1.0, MEI: 0.7, MC: 0.55, VOL: 0.3, PE: 0.2, PD: 0.2 },
+    def: { ZAG: 1.0, GOL: 0.55, VOL: 0.5, MC: 0.3 },
+  },
+};
+export function flankStrength(tokens, side, kind) {
+  const table = FLANK_W[side]?.[kind];
+  if (!table) return 72;
+  let num = 0, den = 0;
+  for (const tk of tokens) {
+    if (tk.out) continue;
+    const w = table[tk.detail] ?? 0;
+    if (w > 0) { num += w * effOvr(tk); den += w; }
+  }
+  return den ? num / den : 72;
+}
+const opposite = (s) => (s === "esq" ? "dir" : s === "dir" ? "esq" : "centro");
+
 const MU = 78; // overall de referência
 const SCALE = 22; // 22 pts de overall ≈ e^1 no λ
 const BASE = 1.22; // gols/time/90 num confronto equilibrado
@@ -99,6 +129,42 @@ export function computeLambdas(state) {
     if (diff > 0) { lamA *= 1 - k; lamB *= 1 + k; }
     else { lamA *= 1 + k; lamB *= 1 - k; }
   }
+
+  // Foco de ataque / lado preferido (Alavanca 1): concentrar a criação num flanco
+  // confronta meu ataque DAQUELE lado com a defesa do flanco OPOSTO do adversário.
+  // Atacar um flanco defensivo fraco do rival → mais xG; atacar um forte → menos.
+  // "meio"/ausente = sem efeito (não regride times equilibrados).
+  const sideAdj = (side, myTok, oppTok) => {
+    if (side !== "esq" && side !== "dir") return 1;
+    const myAtt = flankStrength(myTok, side, "att");
+    const oppDef = flankStrength(oppTok, opposite(side), "def");
+    return 1 + clamp(((myAtt - MU) - (oppDef - MU)) / SCALE, -0.6, 0.6) * 0.45;
+  };
+  lamA *= sideAdj(state.tactics.home.attackSide, A, B);
+  lamB *= sideAdj(state.tactics.away.attackSide, B, A);
+
+  // Marcação individual no craque (Alavanca 2): marco UM jogador do adversário → corto
+  // a criação DELE (o λ do rival cai) com CUSTO (meu ataque cai um pouco, tiro um homem
+  // da estrutura). O efeito ESCALA com a decisividade do alvo (quanto ele pesa no ataque
+  // do time dele) → marcar um craque 90 muda muito mais que um coadjuvante. Se o alvo não
+  // é o principal criador, a marcação "perde o alvo" (corte mínimo) e vira só custo.
+  const markEffect = (markId, oppTok) => {
+    if (!markId) return { oppReduce: 1, selfCost: 1 };
+    let contrib = 0, total = 0, found = false;
+    for (const t of oppTok) {
+      if (t.out) continue;
+      const c = wOf(ATT_W, t) * effOvr(t);
+      total += c;
+      if (t.id === markId) { contrib = c; found = true; }
+    }
+    if (!found || total <= 0) return { oppReduce: 1, selfCost: 1 }; // alvo inexistente/expulso
+    const decis = contrib / total; // ~0.02 (coadjuvante) .. ~0.18 (craque referência)
+    return { oppReduce: 1 - clamp(decis * 1.7, 0, 0.30), selfCost: 0.955 };
+  };
+  const mkHome = markEffect(state.tactics.home.manMark, B); // home marca alguém do away
+  const mkAway = markEffect(state.tactics.away.manMark, A); // away marca alguém do home
+  lamB *= mkHome.oppReduce; lamA *= mkHome.selfCost;
+  lamA *= mkAway.oppReduce; lamB *= mkAway.selfCost;
 
   // Choque de forma por partida (constante sorteada na criação)
   lamA *= state.form?.home ?? 1;
