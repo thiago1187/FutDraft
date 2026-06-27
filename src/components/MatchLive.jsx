@@ -4,6 +4,7 @@ import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
 import { escudoImg, Avatar } from "./bits.jsx";
+import { listMyTactics } from "../lib/savedTactics.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
@@ -791,6 +792,11 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings, oppPl
   const activePreset = matchingPreset(pending);
   const synergy = computeSynergy(ratings, pending);
 
+  // Bloco E.3 — atalho dos presets salvos do usuário (saved_tactics); preenche as alavancas.
+  const [savedPresets, setSavedPresets] = useState([]);
+  useEffect(() => { listMyTactics().then(setSavedPresets).catch(() => {}); }, []);
+  function applySaved(t) { if (!locked && t) setPending((c) => ({ ...c, ...t })); }
+
   return (
     <div className="mlf-tactics">
       {/* PRESETS rápidos */}
@@ -802,6 +808,17 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings, oppPl
             onClick={() => applyPreset(p)}>{p.name}</button>
         ))}
       </div>
+      {/* Bloco E.3 — meus presets salvos (preenchem as alavancas com 1 clique) */}
+      {savedPresets.length > 0 && (
+        <div className="mlf-saved-presets">
+          {savedPresets.map((t) => (
+            <button key={t.id} type="button" className={`mlf-saved-preset ${t.is_default ? "is-default" : ""}`} disabled={locked}
+              title="Preencher com o preset salvo" onClick={() => applySaved(t.tactics)}>
+              ⭐ {t.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Seg label="Postura" options={POSTURES} value={pending.posture} onPick={(v) => set("posture", v)} />
       <Seg label="Linha defensiva" options={LINES} value={pending.line} onPick={(v) => set("line", v)} />

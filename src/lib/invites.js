@@ -2,6 +2,7 @@
 // e destinatário enxergam). kind 'invite' = "venha pra minha sala" (room_id setado);
 // kind 'challenge' = "vamos jogar" (sem sala — ao aceitar, o desafiante cria a sala).
 import { supabase, hasSupabase } from "./supabase.js";
+import { listBlockedIds } from "./social.js";
 
 // Convites pendentes mais velhos que isto são tratados como expirados ao listar.
 export const INVITE_TTL_MS = 10 * 60_000;
@@ -46,7 +47,9 @@ export async function listIncomingInvites(myId) {
   if (stale.length) {
     await supabase.from("game_invites").update({ status: "expired" }).in("id", stale).then(() => {}, () => {});
   }
-  return fresh;
+  // Bloco E — quem está bloqueado não chega como convite.
+  const blocked = new Set(await listBlockedIds(myId).catch(() => []));
+  return fresh.filter((inv) => !blocked.has(inv.from_id));
 }
 
 // Recusar um convite/desafio.

@@ -42,15 +42,59 @@ export async function listFriendships(myId) {
     )
     .or(`requester_id.eq.${myId},addressee_id.eq.${myId}`);
   if (error) throw error;
-  const friends = [], incoming = [], outgoing = [];
+  const friends = [], incoming = [], outgoing = [], blocked = [];
   for (const f of data || []) {
     const iAmRequester = f.requester_id === myId;
     const other = iAmRequester ? f.addressee : f.requester;
     const row = { friendshipId: f.id, status: f.status, profile: other };
     if (f.status === "accepted") friends.push(row);
     else if (f.status === "pending") (iAmRequester ? outgoing : incoming).push(row);
+    else if (f.status === "blocked") blocked.push(row);
   }
-  return { friends, incoming, outgoing };
+  return { friends, incoming, outgoing, blocked };
+}
+
+// ---------- Perfil personalizável + bloqueio (Bloco E) ----------
+// Bio + seleção favorita. Leitura pública (perfil de qualquer um); escrita só do dono (RLS).
+export async function getProfileExtras(userId) {
+  if (!hasSupabase || !userId) return { bio: "", favorite_squad: null };
+  const { data, error } = await supabase.from("profiles").select("bio, favorite_squad").eq("id", userId).maybeSingle();
+  if (error) throw error;
+  return data || { bio: "", favorite_squad: null };
+}
+
+export async function updateMyExtras(userId, patch) {
+  if (!hasSupabase || !userId) return;
+  const clean = {};
+  if (patch.bio !== undefined) clean.bio = patch.bio;
+  if (patch.favorite_squad !== undefined) clean.favorite_squad = patch.favorite_squad;
+  if (!Object.keys(clean).length) return;
+  const { error } = await supabase.from("profiles").update(clean).eq("id", userId);
+  if (error) throw error;
+}
+
+// Bloquear: some da lista de amigos e deixa de receber convites desse amigo (filtro no
+// listIncomingInvites). Desbloquear devolve para 'accepted'.
+export async function blockFriend(friendshipId) {
+  if (!hasSupabase) return;
+  const { error } = await supabase.from("friendships").update({ status: "blocked", updated_at: new Date().toISOString() }).eq("id", friendshipId);
+  if (error) throw error;
+}
+
+export async function unblockFriend(friendshipId) {
+  if (!hasSupabase) return;
+  const { error } = await supabase.from("friendships").update({ status: "accepted", updated_at: new Date().toISOString() }).eq("id", friendshipId);
+  if (error) throw error;
+}
+
+// IDs dos usuários com quem tenho um vínculo 'blocked' (qualquer dos dois lados).
+export async function listBlockedIds(myId) {
+  if (!hasSupabase || !myId) return [];
+  const { data, error } = await supabase
+    .from("friendships").select("requester_id, addressee_id")
+    .eq("status", "blocked").or(`requester_id.eq.${myId},addressee_id.eq.${myId}`);
+  if (error) throw error;
+  return (data || []).map((r) => (r.requester_id === myId ? r.addressee_id : r.requester_id));
 }
 
 // Envia pedido de amizade (RLS exige requester_id = auth.uid()).

@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
-import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl } from "./bits.jsx";
+import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl, Flag } from "./bits.jsx";
 import { updateMyProfile } from "../lib/auth.js";
+import { SQUADS, SQUAD_BY_ID, squadLabel } from "../data/squads.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
   acceptFriend, removeFriendship, headToHead, isOnline, roomsJoinable,
-  recentMatches, statsFor,
+  recentMatches, statsFor, getProfileExtras, updateMyExtras, blockFriend, unblockFriend,
 } from "../lib/social.js";
 import { createInvite } from "../lib/invites.js";
+import { listMyTactics, saveTactic, deleteTactic, setDefaultTactic, DEFAULT_TACTIC } from "../lib/savedTactics.js";
+
+// ---- Apelidos locais e favoritos (Bloco E.4): só no aparelho (localStorage). ----
+const NICK_KEY = "futdraft_friend_nicks";
+const PIN_KEY = "futdraft_friend_pins";
+function loadMap(key) { try { return JSON.parse(localStorage.getItem(key) || "{}"); } catch { return {}; } }
+function saveMap(key, m) { try { localStorage.setItem(key, JSON.stringify(m)); } catch { /* ignora */ } }
 
 // Sequência atual entre os 2 (a partir dos confrontos já ordenados do mais recente).
 // Empate quebra a sequência. Retorna { who: "me"|"them"|null, n }.
@@ -36,17 +44,23 @@ function timeAgo(ts) {
 
 export default function Profile({ myId, profile, onClose, onProfileChange, onEnterRoom, myRoom, invites = [], onAcceptInvite, onDeclineInvite }) {
   const [stats, setStats] = useState(null);
-  const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [] });
+  const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [], blocked: [] });
   const [roomStatus, setRoomStatus] = useState({}); // code -> { joinable, reason } das salas dos amigos
   const [ranking, setRanking] = useState([]); // Bloco D — círculo (eu + amigos) por títulos/aproveitamento
+  const [extras, setExtras] = useState({ bio: "", favorite_squad: null }); // Bloco E — bio + seleção
+  const [tactics, setTactics] = useState([]); // Bloco E — presets de tática salvos
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
   async function refresh() {
     try {
-      const [s, f] = await Promise.all([getStats(myId), listFriendships(myId)]);
+      const [s, f, ex, tc] = await Promise.all([
+        getStats(myId), listFriendships(myId), getProfileExtras(myId).catch(() => ({})), listMyTactics().catch(() => []),
+      ]);
       setStats(s);
       setFriends(f);
+      setExtras({ bio: ex?.bio || "", favorite_squad: ex?.favorite_squad || null });
+      setTactics(tc);
       // Bloco B — joinabilidade das salas onde os amigos estão AGORA (pra "Entrar na sala").
       const codes = f.friends.map((x) => x.profile?.current_room).filter(Boolean);
       setRoomStatus(codes.length ? await roomsJoinable(codes).catch(() => ({})) : {});
@@ -71,7 +85,14 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
         <span />
       </div>
 
-      <MyCard profile={profile} stats={stats} onProfileChange={onProfileChange} setNotice={setNotice} />
+      <MyCard
+        myId={myId}
+        profile={profile}
+        extras={extras}
+        onProfileChange={onProfileChange}
+        onExtrasChange={setExtras}
+        setNotice={setNotice}
+      />
 
       <StatsRow stats={stats} />
 
@@ -90,6 +111,8 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
       />
 
       <RankingPanel rows={ranking} myId={myId} />
+
+      <TacticsPresets myId={myId} tactics={tactics} reload={refresh} setNotice={setNotice} />
 
       {notice && <div className="profile-notice">{notice}</div>}
     </div>
@@ -149,29 +172,62 @@ function RankingPanel({ rows, myId }) {
   );
 }
 
-// ---------- Card do jogador + edição ----------
-function MyCard({ profile, onProfileChange, setNotice }) {
+// Busca/seleção da seleção favorita (lê do registry SQUADS carregado pelo App).
+function SquadPicker({ value, onPick }) {
+  const [q, setQ] = useState("");
+  const sel = value ? SQUAD_BY_ID[value] : null;
+  const term = q.trim().toLowerCase();
+  const list = (term ? SQUADS.filter((s) => squadLabel(s).toLowerCase().includes(term)) : SQUADS).slice(0, 40);
+  return (
+    <div className="squad-picker">
+      <div className="squad-picker-row">
+        <input className="home-name-input" value={q} placeholder={sel ? squadLabel(sel) : "Buscar seleção…"} onChange={(e) => setQ(e.target.value)} />
+        {value && <button className="btn btn-ghost btn-sm" onClick={() => { onPick(null); setQ(""); }}>Limpar</button>}
+      </div>
+      <div className="squad-options">
+        {list.map((s) => (
+          <button key={s.id} type="button" className={"squad-opt" + (value === s.id ? " is-on" : "")} onClick={() => onPick(s.id)}>
+            <Flag iso2={s.iso2} src={s.flagSrc} emoji={s.flag} round />
+            <span>{squadLabel(s)}</span>
+          </button>
+        ))}
+        {!list.length && <span className="muted profile-mini">Nenhuma seleção (ainda carregando?).</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Card do jogador + edição (Bloco E: + nome de técnico, bio, seleção favorita) ----------
+function MyCard({ myId, profile, extras, onProfileChange, onExtrasChange, setNotice }) {
   const [editing, setEditing] = useState(false);
+  const [displayName, setDisplayName] = useState("");
   const [teamName, setTeamName] = useState(profile?.team_name || "");
   const [emoji, setEmoji] = useState(profile?.emoji || TEAM_EMOJIS[0]);
   const [color, setColor] = useState(profile?.color || TEAM_COLORS[0]);
+  const [bio, setBio] = useState("");
+  const [favSquad, setFavSquad] = useState(null);
   const [saving, setSaving] = useState(false);
 
   // Inicializa os campos AO ABRIR o editor — não a cada mudança de `profile`, senão
   // uma atualização de `profile` (ex.: refresh de sessão) apagaria o que você digita.
   useEffect(() => {
     if (!editing) return;
+    setDisplayName(profile?.display_name || "");
     setTeamName(profile?.team_name || "");
     setEmoji(profile?.emoji || TEAM_EMOJIS[0]);
     setColor(profile?.color || TEAM_COLORS[0]);
+    setBio(extras?.bio || "");
+    setFavSquad(extras?.favorite_squad || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
 
   async function save() {
     setSaving(true);
     try {
-      const updated = await updateMyProfile({ team_name: teamName.trim(), emoji, color });
+      const updated = await updateMyProfile({ display_name: displayName.trim(), team_name: teamName.trim(), emoji, color });
+      await updateMyExtras(myId, { bio: bio.trim(), favorite_squad: favSquad });
       onProfileChange?.(updated);
+      onExtrasChange?.({ bio: bio.trim(), favorite_squad: favSquad });
       setEditing(false);
     } catch (e) {
       setNotice(e?.message || "Não foi possível salvar.");
@@ -180,6 +236,8 @@ function MyCard({ profile, onProfileChange, setNotice }) {
     }
   }
 
+  const fav = extras?.favorite_squad ? SQUAD_BY_ID[extras.favorite_squad] : null;
+
   return (
     <div className="profile-card">
       <Avatar emoji={editing ? emoji : profile?.emoji} color={editing ? color : profile?.color} size={84} />
@@ -187,11 +245,26 @@ function MyCard({ profile, onProfileChange, setNotice }) {
         <div className="profile-username">@{profile?.username}</div>
         {!editing ? (
           <>
+            {profile?.display_name && <div className="profile-displayname">{profile.display_name}</div>}
             <div className="profile-team">{profile?.team_name || "Sem time definido"}</div>
+            {fav && (
+              <div className="profile-fav" title="Seleção favorita">
+                <Flag iso2={fav.iso2} src={fav.flagSrc} emoji={fav.flag} round />
+                <span>{squadLabel(fav)}</span>
+              </div>
+            )}
+            {extras?.bio && <div className="profile-bio">{extras.bio}</div>}
             <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>Editar perfil</button>
           </>
         ) : (
           <div className="profile-edit">
+            <input
+              className="home-name-input"
+              value={displayName}
+              maxLength={18}
+              placeholder="Seu nome de técnico"
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
             <input
               className="home-name-input"
               value={teamName}
@@ -199,6 +272,16 @@ function MyCard({ profile, onProfileChange, setNotice }) {
               placeholder="Nome do time"
               onChange={(e) => setTeamName(e.target.value)}
             />
+            <textarea
+              className="home-name-input profile-bio-input"
+              value={bio}
+              maxLength={140}
+              rows={2}
+              placeholder="Bio (curta)…"
+              onChange={(e) => setBio(e.target.value)}
+            />
+            <div className="profile-pick-label">Seleção favorita</div>
+            <SquadPicker value={favSquad} onPick={setFavSquad} />
             <div className="profile-pick-label">Escudo · bandeiras</div>
             <div className="profile-emoji-grid profile-flag-grid">
               {TEAM_FLAGS.map((code) => {
@@ -296,6 +379,17 @@ function FriendsPanel({ myId, friends, roomStatus, myRoom, onEnterRoom, setNotic
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  // Bloco E.4 — apelido local + fixar no topo (só no aparelho).
+  const [nicks, setNicks] = useState(() => loadMap(NICK_KEY));
+  const [pins, setPins] = useState(() => loadMap(PIN_KEY));
+  function setNick(id, name) { const m = { ...nicks }; if (name) m[id] = name; else delete m[id]; setNicks(m); saveMap(NICK_KEY, m); }
+  function togglePin(id) { const m = { ...pins }; if (m[id]) delete m[id]; else m[id] = true; setPins(m); saveMap(PIN_KEY, m); }
+
+  const sortedFriends = [...(friends.friends || [])].sort((a, b) => {
+    const pa = pins[a.profile?.id] ? 1 : 0, pb = pins[b.profile?.id] ? 1 : 0;
+    if (pa !== pb) return pb - pa; // fixados primeiro
+    return (a.profile?.username || "").localeCompare(b.profile?.username || "");
+  });
 
   async function doSearch(q) {
     setQuery(q);
@@ -373,7 +467,7 @@ function FriendsPanel({ myId, friends, roomStatus, myRoom, onEnterRoom, setNotic
         <div className="muted profile-mini">Você ainda não tem amigos adicionados.</div>
       ) : (
         <div className="friend-list">
-          {friends.friends.map((f) => (
+          {sortedFriends.map((f) => (
             <FriendCard
               key={f.friendshipId}
               myId={myId}
@@ -381,11 +475,35 @@ function FriendsPanel({ myId, friends, roomStatus, myRoom, onEnterRoom, setNotic
               roomStatus={roomStatus}
               myRoom={myRoom}
               onEnterRoom={onEnterRoom}
+              nick={nicks[f.profile?.id] || ""}
+              pinned={!!pins[f.profile?.id]}
+              onTogglePin={() => togglePin(f.profile?.id)}
+              onSetNick={() => {
+                const n = window.prompt("Apelido local para este amigo (vazio remove):", nicks[f.profile?.id] || "");
+                if (n !== null) setNick(f.profile?.id, n.trim());
+              }}
+              onBlock={() => act(blockFriend, f.friendshipId)}
               onRemove={() => act(removeFriendship, f.friendshipId)}
               setNotice={setNotice}
             />
           ))}
         </div>
+      )}
+
+      {friends.blocked?.length > 0 && (
+        <>
+          <div className="profile-subtitle">Bloqueados ({friends.blocked.length})</div>
+          <div className="friend-list">
+            {friends.blocked.map((f) => (
+              <div className="friend-row" key={f.friendshipId}>
+                <Avatar emoji={f.profile?.emoji} color={f.profile?.color} size={36} />
+                <div className="friend-meta"><div className="friend-name">@{f.profile?.username}</div></div>
+                <span className="friend-badge">bloqueado</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => act(unblockFriend, f.friendshipId)}>Desbloquear</button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {friends.outgoing.length > 0 && (
@@ -415,7 +533,7 @@ function PresencePill({ online, inRoom, lastSeen }) {
 }
 
 // Amigo vivo: presença + ações (entrar na sala / convidar / desafiar) + confronto sob demanda.
-function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNotice }) {
+function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, nick, pinned, onTogglePin, onSetNick, onBlock, onRemove, setNotice }) {
   const [h2h, setH2h] = useState(null);
   const [matches, setMatches] = useState(null); // últimos confrontos (Bloco D)
   const [open, setOpen] = useState(false);
@@ -451,7 +569,11 @@ function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNot
       <div className="friend-row">
         <Avatar emoji={p.emoji} color={p.color} size={36} online={online} />
         <div className="friend-meta">
-          <div className="friend-name">@{p.username} <PresencePill online={online} inRoom={inRoom} lastSeen={p.last_seen} /></div>
+          <div className="friend-name">
+            {pinned && <span className="friend-pin" title="Fixado no topo">📌</span>}
+            {nick ? <><b>{nick}</b> <span className="friend-handle">@{p.username}</span></> : <>@{p.username}</>}
+            {" "}<PresencePill online={online} inRoom={inRoom} lastSeen={p.last_seen} />
+          </div>
           <div className="friend-team">{p.team_name || ""}</div>
         </div>
         <span className="friend-h2h-toggle" onClick={toggle} style={{ cursor: "pointer" }}>{open ? "▲" : "Confronto ▾"}</span>
@@ -532,8 +654,128 @@ function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNot
               )}
             </>
           )}
-          <button className="btn btn-ghost btn-sm friend-remove" onClick={onRemove}>Remover amigo</button>
+          <div className="friend-manage">
+            <button className="btn btn-ghost btn-sm" onClick={onTogglePin}>{pinned ? "Desafixar" : "📌 Fixar"}</button>
+            <button className="btn btn-ghost btn-sm" onClick={onSetNick}>Apelido</button>
+            <button className="btn btn-ghost btn-sm" onClick={onBlock}>Bloquear</button>
+            <button className="btn btn-ghost btn-sm friend-remove" onClick={onRemove}>Remover</button>
+          </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Táticas preferidas (Bloco E.3) ----------
+const POSTURE_OPTS = [["defensivo", "Defensivo"], ["equilibrado", "Equilibrado"], ["ofensivo", "Ofensivo"]];
+const LINE_OPTS = [["baixa", "Baixa"], ["media", "Média"], ["alta", "Alta"]];
+const MARK_OPTS = [["leve", "Leve"], ["pressao", "Pressão alta"]];
+const ATK_OPTS = [["esq", "Esquerda"], ["meio", "Meio"], ["dir", "Direita"]];
+
+function tacticSummary(t = {}) {
+  const L = {
+    posture: { defensivo: "Defensivo", equilibrado: "Equilíbrio", ofensivo: "Ofensivo" },
+    line: { baixa: "Linha baixa", media: "Linha média", alta: "Linha alta" },
+    marking: { leve: "Marc. leve", pressao: "Pressão alta" },
+    attackSide: { esq: "Pela esq.", meio: "Pelo meio", dir: "Pela dir." },
+  };
+  const parts = [];
+  if (t.posture) parts.push(L.posture[t.posture]);
+  if (t.line) parts.push(L.line[t.line]);
+  if (t.build != null) parts.push(t.build < 0.5 ? "Toque" : "Direto");
+  if (t.marking) parts.push(L.marking[t.marking]);
+  if (t.attackSide && t.attackSide !== "meio") parts.push(L.attackSide[t.attackSide]);
+  return parts.filter(Boolean).join(" · ");
+}
+
+function LeverSeg({ label, options, value, onPick }) {
+  return (
+    <div className="tac-lever">
+      <span className="tac-lever-label">{label}</span>
+      <div className="tac-lever-opts">
+        {options.map(([v, lbl]) => (
+          <button key={v} type="button" className={"tac-opt" + (value === v ? " is-on" : "")} onClick={() => onPick(v)}>{lbl}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TacticsPresets({ myId, tactics, reload, setNotice }) {
+  const [editing, setEditing] = useState(null); // null | "new" | <id>
+  const [name, setName] = useState("");
+  const [lev, setLev] = useState(DEFAULT_TACTIC);
+  const [isDefault, setIsDefault] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function openNew() { setEditing("new"); setName(""); setLev(DEFAULT_TACTIC); setIsDefault(false); }
+  function openEdit(t) { setEditing(t.id); setName(t.name || ""); setLev({ ...DEFAULT_TACTIC, ...(t.tactics || {}) }); setIsDefault(!!t.is_default); }
+  const set = (k, v) => setLev((p) => ({ ...p, [k]: v }));
+
+  async function save() {
+    setSaving(true);
+    try {
+      await saveTactic({ id: editing === "new" ? undefined : editing, userId: myId, name, tactics: lev, isDefault });
+      setEditing(null); await reload();
+    } catch (e) { setNotice(e?.message || "Não foi possível salvar o preset."); }
+    finally { setSaving(false); }
+  }
+  async function remove(id) {
+    try { await deleteTactic(id); await reload(); }
+    catch (e) { setNotice(e?.message || "Falha ao excluir."); }
+  }
+  async function makeDefault(id) {
+    try { await setDefaultTactic(myId, id); await reload(); }
+    catch (e) { setNotice(e?.message || "Falha ao definir padrão."); }
+  }
+
+  return (
+    <div className="profile-tactics">
+      <h3 className="profile-section-title">Táticas preferidas</h3>
+      {tactics.length === 0 && !editing && (
+        <div className="muted profile-mini">Nenhum preset ainda. Crie um para preencher as alavancas rapidinho na partida.</div>
+      )}
+      {tactics.length > 0 && (
+        <div className="tac-list">
+          {tactics.map((t) => (
+            <div className="tac-row" key={t.id}>
+              <div className="tac-row-main">
+                <span className="tac-name">{t.name}{t.is_default && <span className="tac-default">padrão</span>}</span>
+                <span className="tac-sum">{tacticSummary(t.tactics)}</span>
+              </div>
+              {!t.is_default && <button className="btn btn-ghost btn-sm" title="Definir como padrão" onClick={() => makeDefault(t.id)}>★</button>}
+              <button className="btn btn-ghost btn-sm" onClick={() => openEdit(t)}>Editar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => remove(t.id)}>Excluir</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editing ? (
+        <div className="tac-editor">
+          <input className="home-name-input" value={name} maxLength={24} placeholder="Nome do preset (ex.: Pressão total)" onChange={(e) => setName(e.target.value)} />
+          <LeverSeg label="Postura" options={POSTURE_OPTS} value={lev.posture} onPick={(v) => set("posture", v)} />
+          <LeverSeg label="Linha" options={LINE_OPTS} value={lev.line} onPick={(v) => set("line", v)} />
+          <div className="tac-lever">
+            <span className="tac-lever-label">Posse</span>
+            <div className="tac-slider">
+              <span className={(lev.build ?? 0.5) < 0.5 ? "on" : ""}>Toque</span>
+              <input type="range" min="0" max="100" value={Math.round((lev.build ?? 0.5) * 100)} onChange={(e) => set("build", Number(e.target.value) / 100)} />
+              <span className={(lev.build ?? 0.5) >= 0.5 ? "on" : ""}>Direto</span>
+            </div>
+          </div>
+          <LeverSeg label="Pressão" options={MARK_OPTS} value={lev.marking} onPick={(v) => set("marking", v)} />
+          <LeverSeg label="Foco de ataque" options={ATK_OPTS} value={lev.attackSide} onPick={(v) => set("attackSide", v)} />
+          <label className="tac-default-check">
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} /> Usar como padrão
+          </label>
+          <div className="profile-edit-actions">
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={saving || !name.trim()}>{saving ? "Salvando…" : "Salvar preset"}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)} disabled={saving}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn btn-amber btn-sm" onClick={openNew}>+ Novo preset</button>
       )}
     </div>
   );
