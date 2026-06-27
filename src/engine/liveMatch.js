@@ -13,6 +13,9 @@ import { mulberry32, randomSeed, gaussian } from "./rng.js";
 const MATCH_MS_1X = 110000; // 90' em ~110s a 1× (~1,2s por minuto) — dá pra acompanhar
 const HALF = 45;
 const SIM_STEP = 450; // ms (escalados) entre decisões — jogadas mais deliberadas/visíveis
+// Conversão-base do chute, ancorada no λ (fluxo único gol↔chute). Calibrada no harness
+// para gols ~2,5 e conversão ~10% (ver §T3). pGoal por chute ∝ λ/volume → gols ≈ λ.
+const GOAL_K = 0.12;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -114,6 +117,14 @@ export function createLiveMatch(home, away, opts = {}) {
   function postureMult(s) {
     const p = state.tactics[s].posture;
     return p === "ofensivo" ? 1.34 : p === "defensivo" ? 0.7 : 1;
+  }
+  // Volume de finalização por estilo (impressão digital §6): ataque total chuta MUITO
+  // mais, retranca menos. Usado p/ escalar a FREQUÊNCIA de chute E p/ normalizar a
+  // conversão (pGoal ∝ λ/volume) — assim o volume muda, mas os gols seguem o λ.
+  function shotVol(s) {
+    const t = state.tactics[s];
+    const post = t.posture === "ofensivo" ? 1.42 : t.posture === "defensivo" ? 0.66 : 1.0;
+    return post * (0.9 + (t.build ?? 0.4) * 0.3) * (t.marking === "pressao" ? 1.07 : 1);
   }
 
   function emit(type, side, extra = {}) {
@@ -276,13 +287,10 @@ export function createLiveMatch(home, away, opts = {}) {
       return;
     }
 
-    // finalização no terço final
-    if (bp > 0.72) {
-      const freq = (0.24 + (bp - 0.72) * 1.1) * postureMult(poss) * (0.85 + t[poss].build * 0.4);
-      if (rnd() < clamp(freq, 0, 0.7)) return doShot(poss, c, bp);
-    }
-    // chute de fora no estilo "direto"
-    if (bp > 0.5 && rnd() < 0.09 * t[poss].build) return doShot(poss, c, bp);
+    // Quando o portador chega ao terço final, registra a CHANCE para o gerador de
+    // chutes do minuto materializar (o disparo em si — gol/defesa/fora — sai de doShot,
+    // no fluxo único). Guarda o melhor candidato a finalizador da jogada.
+    if (bp > 0.72) state.chance = { side: poss, idx: state.carrier.idx, bp };
 
     // progride: passe para companheiro mais à frente, ou conduz
     advanceBall(poss);
@@ -454,96 +462,87 @@ export function createLiveMatch(home, away, opts = {}) {
     state.xgTimeline.push({ m: state.minute, h: Math.round(state.xg[0] * 100) / 100, a: Math.round(state.xg[1] * 100) / 100 });
   }
 
-  // A cada MINUTO de jogo: recalcula λ (placar/fadiga/cartões), desgasta e SORTEIA gols.
-  // Os gols são um processo de Poisson com taxa λ/90 — assim cada overall e cada decisão
-  // de tática mudam de verdade a expectativa de gols (e a chance de vitória).
+  // A cada MINUTO: recalcula λ (placar/fadiga/cartões), desgasta, sorteia pênalti e
+  // dispara no máx. 1 CHUTE (resolvido por doShot → gol/defesa/fora). GOLS nascem do
+  // chute, no fluxo único (§T3). Ordem dos lados aleatória p/ não criar viés de mando.
   function minuteTick() {
     recalcLam();
     for (const side of ["home", "away"]) {
       const drain = state.tactics[side].marking === "pressao" ? 0.5 : 0.32;
       state.tokens[side].forEach((p) => { if (!p.out) p.stamina = clamp(p.stamina - drain, 35, 100); });
     }
-    // ESTATÍSTICAS realistas (chutes / no alvo / escanteios) — contam por minuto SEM
-    // cinemática, calibradas pelo λ. Os gols (abaixo) somam +1 chute e +1 no alvo cada,
-    // então a conversão fica em ~10-15% e o "no alvo" sempre ≥ gols.
-    for (const side of ["home", "away"]) {
-      const pi = idx(side);
-      const lam = state.lam[side];
-      const t = state.tactics[side];
-      // ESTILO afeta a FREQUÊNCIA de finalização de forma visível (impressão digital, §6):
-      // ataque total chuta MUITO mais (porém com xG menor por chute); retranca chuta
-      // menos e melhor; jogo direto e pressão também elevam o volume.
-      const post = t.posture === "ofensivo" ? 1.42 : t.posture === "defensivo" ? 0.66 : 1.0;
-      const shotMult = post * (0.9 + (t.build ?? 0.4) * 0.3) * (t.marking === "pressao" ? 1.07 : 1);
-      const xgPerShot = t.posture === "ofensivo" ? 0.82 : t.posture === "defensivo" ? 1.18 : 1;
-      if (rnd() < clamp((0.05 + lam * 0.04) * shotMult, 0.02, 0.34)) {
-        state.stats.shots[pi]++;
-        const on = rnd() < 0.36; // ~36% no alvo (além dos gols)
-        if (on) state.stats.onTarget[pi]++;
-        state.xg[pi] += (on ? 0.06 + rnd() * 0.07 : 0.015 + rnd() * 0.03) * xgPerShot; // chance → xG
-        logXg();
-      }
-      if (rnd() < clamp((0.03 + lam * 0.022) * post, 0.01, 0.13)) state.stats.corners[pi]++; // estilo move escanteios
-    }
-    // pênalti EM JOGO (raro, ~0.25/jogo) — proporcional ao ataque; PAUSA o jogo p/ a
-    // cobrança (mini-tela). Preempta o gol do minuto.
     for (const side of ["home", "away"]) {
       if (rnd() < state.lam[side] * 0.00082) { doPenalty(side); return; }
     }
-    // sorteio de gol (no máx. 1 por minuto p/ a cinemática ser vista)
-    for (const side of ["home", "away"]) {
-      const lam = state.lam[side];
-      if (rnd() < lam / 90) { triggerGoal(side); return; }
+    const order = rnd() < 0.5 ? ["home", "away"] : ["away", "home"];
+    for (const side of order) {
+      const rate = clamp((0.055 + state.lam[side] * 0.045) * shotVol(side), 0.02, 0.36);
+      if (rnd() < rate) {
+        let shooter, bp;
+        if (state.chance && state.chance.side === side) {
+          shooter = tk(side, state.chance.idx) || pickScorer(side);
+          bp = state.chance.bp;
+        } else {
+          shooter = pickScorer(side);
+          bp = 0.74 + rnd() * 0.2;
+        }
+        state.chance = null;
+        doShot(side, shooter, bp);
+        return; // 1 chute/minuto: a cinemática é vista e não há dois lances sobrepostos
+      }
     }
   }
 
-  // Marca um gol "de verdade" (vindo do λ): escolhe o autor, posiciona e anima.
-  function triggerGoal(side) {
-    const pi = idx(side);
-    const shooter = pickScorer(side);
-    state.stats.shots[pi]++;
-    state.stats.onTarget[pi]++;
-    state.score[pi]++;
-    const gx = attGoalX(side);
-    const fromX = side === "home" ? 82 + rnd(8) : 18 - rnd(8);
-    const fromY = clamp(38 + rnd(24), 28, 72);
-    const aimY = 50 + (rnd() * 2 - 1) * 12;
-    const gkDir = rnd() < 0.5 ? 1 : -1;
-    state.xg[pi] += 0.5;
-    logXg();
-    emit("goal", side, { scorer: shooter.name, scorerId: shooter.id, score: [...state.score] });
-    setCinematic({ type: "shot", side, fromX, fromY, targetX: gx, aimY, outcome: "goal", gkDir, shooter: shooter.name, holdMs: 1700 });
-    state.ball = { x: gx, y: clamp(aimY, 6, 94) };
-    state.possession = other(side);
-    state.carrier = null; state.pass = null;
-    state.momentum = clamp(state.momentum + (side === "home" ? 0.25 : -0.25), -1, 1);
-  }
-
-  // ---------- chute VISUAL (não pontua — gols vêm do λ) ----------
+  // ---------- FLUXO ÚNICO: o gol nasce do chute que se VÊ ----------
+  // O mesmo chute soma xG, conta como finalização/no-alvo e pode virar gol/defesa/trave/
+  // fora. A probabilidade de gol é ancorada no λ: pGoal ∝ λ/volume → os gols seguem o λ
+  // (gols ~2,5, sem mando, táticas pesam) mesmo com o volume de chutes variando por estilo.
   function doShot(poss, shooter, bp) {
     const pi = idx(poss);
     const opp = other(poss);
     const gk = gkRating(opp);
     const sh = effOvr(shooter);
     state.stats.shots[pi]++;
-    state.xg[pi] += clamp(0.06 + (sh - 70) / 240 + (bp - 0.78) * 0.2, 0.02, 0.4);
+
+    // xG do chute ≡ PROBABILIDADE DE GOL (definição de xG → coerência total: gols ≈ ΣxG).
+    // Ancorado no λ (volume cancela → gols seguem o λ), modulado por qualidade da chance
+    // (finalizador + posição) e pelo goleiro adversário.
+    const gkFactor = clamp(1 - (gk - 78) / 130, 0.72, 1.22);
+    const quality = clamp(0.7 + (sh - 70) / 110 + (bp - 0.78) * 0.6, 0.35, 1.7);
+    const pGoal = clamp((state.lam[poss] / shotVol(poss)) * GOAL_K * quality * gkFactor, 0.01, 0.85);
+    state.xg[pi] += pGoal;
     logXg();
 
     const fromX = shooter.x, fromY = shooter.y;
-    const onTarget = rnd() < clamp(0.34 + (sh - 70) / 160, 0.22, 0.72);
     let outcome, aimY, holdMs;
-    if (!onTarget) {
-      outcome = rnd() < 0.5 ? "wide" : "over";
-      aimY = outcome === "wide" ? (rnd() < 0.5 ? 28 : 72) : 50 + (rnd() * 2 - 1) * 14;
-      holdMs = 700;
-    } else {
+    if (rnd() < pGoal) {
+      outcome = "goal";
       state.stats.onTarget[pi]++;
+      state.score[pi]++;
+      const scorer = pickScorer(poss);
       aimY = 50 + (rnd() * 2 - 1) * 12;
-      outcome = rnd() < 0.06 ? "post" : "save"; // nunca gol aqui
-      holdMs = outcome === "post" ? 850 : 950;
-      emit(outcome, poss);
+      holdMs = 1700;
+      state.momentum = clamp(state.momentum + (poss === "home" ? 0.25 : -0.25), -1, 1);
+      emit("goal", poss, { scorer: scorer.name, scorerId: scorer.id, score: [...state.score] });
+    } else {
+      // não foi gol → classificação VISUAL (no alvo: defesa/trave; ou fora). É só estética
+      // e estatística; a probabilidade de gol já foi decidida acima (= xG).
+      const onTarget = rnd() < clamp(0.42 + (sh - 70) / 150, 0.26, 0.72);
+      if (onTarget) {
+        state.stats.onTarget[pi]++;
+        aimY = 50 + (rnd() * 2 - 1) * 12;
+        outcome = rnd() < 0.07 ? "post" : "save";
+        holdMs = outcome === "post" ? 850 : 950;
+        emit(outcome, poss);
+        if (rnd() < 0.55) { state.stats.corners[pi]++; emit("corner", poss); } // rebote → escanteio
+      } else {
+        outcome = rnd() < 0.5 ? "wide" : "over";
+        aimY = outcome === "wide" ? (rnd() < 0.5 ? 28 : 72) : 50 + (rnd() * 2 - 1) * 14;
+        holdMs = 700;
+        emit("shot", poss);
+        if (rnd() < 0.42) { state.stats.corners[pi]++; emit("corner", poss); } // bloqueio/desvio → escanteio
+      }
     }
-    if (!onTarget) emit("shot", poss);
     const gkDir = outcome === "save" ? Math.sign(aimY - 50) || 1 : (rnd() < 0.5 ? Math.sign(aimY - 50) : -Math.sign(aimY - 50)) || 1;
 
     setCinematic({ type: "shot", side: poss, fromX, fromY, targetX: attGoalX(poss), aimY, outcome, gkDir, shooter: shooter.name, holdMs });
