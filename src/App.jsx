@@ -784,6 +784,14 @@ export default function App() {
           profile={profile}
           onClose={() => setShowProfile(false)}
           onProfileChange={(p) => p && setProfile(p)}
+          myRoom={room && !room.isLocal && gstate?.phase === "lobby" ? { code: gstate.code } : null}
+          onEnterRoom={async (code) => {
+            setShowProfile(false);
+            const nm = profile?.display_name || session?.name || "Técnico";
+            // se eu já estava em outra sala, saio dela antes de entrar na do amigo
+            if (roomRef.current && roomRef.current.code !== code) { try { await roomRef.current.leave(); } catch (_) {} }
+            onJoin(code, nm);
+          }}
         />
       </div>
     );
@@ -857,6 +865,11 @@ export default function App() {
       )}
       {gstate.phase === "finished" && (
         <Champion state={gstate} myId={myId} isHost={isHost} actions={actions} />
+      )}
+      {/* Bloco B — atalho de amigos no lobby online: abre o Perfil (onde dá pra convidar
+          o amigo pra ESTA sala). Sair do Perfil volta direto pro lobby. */}
+      {gstate.phase === "lobby" && auth && !isLocal && (
+        <button className="friends-fab" onClick={() => setShowProfile(true)} title="Amigos · convidar pra sala">👥 Amigos</button>
       )}
       <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
     </div>

@@ -2340,3 +2340,22 @@ body {
 .mlf-mark:disabled { opacity: .5; cursor: default; }
 .mlf-mark.sel { background: var(--red); border-color: var(--red); color: #fff; }
 .mlf-mark-ovr { font-size: 10px; opacity: .7; }
+
+/* ===================== feat/profile-social (perfil + social de amigos) ===================== */
+/* Bloco B — atalho de amigos no lobby (fab no canto, espelha o dev-fab do lado oposto) */
+.friends-fab {
+  position: fixed; left: 14px; bottom: 14px; z-index: 100;
+  font-family: var(--head); font-weight: 700; font-size: 12px; letter-spacing: 0.04em;
+  background: var(--ink); color: var(--gold);
+  border: 1.5px solid var(--gold); border-radius: 99px;
+  padding: 9px 14px; cursor: pointer; box-shadow: var(--shadow); opacity: 0.9;
+}
+.friends-fab:hover { opacity: 1; }
+
+/* Bloco B — presença + ações no card do amigo */
+.friend-pill { font-family: var(--head); font-weight: 700; font-size: 10px; letter-spacing: 0.03em; padding: 1px 7px; border-radius: 99px; vertical-align: middle; white-space: nowrap; }
+.friend-pill.on { color: #2e7d4f; background: rgba(63,156,99,0.16); }
+.friend-pill.in-room { color: #8a5a00; background: rgba(245,165,36,0.22); }
+.friend-pill.off { color: var(--muted, #8a8470); background: rgba(0,0,0,0.05); }
+.friend-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
+.friend-actions .btn-sm { flex: 0 0 auto; }

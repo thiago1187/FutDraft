@@ -2,7 +2,7 @@
 // confronto direto (RPC head_to_head). Tudo no Supabase, protegido por RLS.
 import { supabase, hasSupabase } from "./supabase.js";
 
-const PROFILE_COLS = "id, username, display_name, team_name, emoji, color";
+const PROFILE_COLS = "id, username, display_name, team_name, emoji, color, current_room, last_seen";
 
 // Estatísticas do jogador (jogos, V/E/D, gols, títulos). A view sempre devolve uma
 // linha por profile (LEFT JOIN), então zera sozinha para quem nunca jogou.
@@ -113,6 +113,36 @@ export async function setCurrentRoom(userId, roomCode) {
     .update({ current_room: roomCode || null, last_seen: new Date().toISOString() })
     .eq("id", userId);
   if (error) throw error;
+}
+
+// Limite de técnicos por sala (mesmo teto do lobby/motor). Sala "cheia" não aceita entrada.
+const ROOM_CAP = 16;
+
+// Estado de "entrável" das salas de um conjunto de códigos (para "entrar na sala do amigo").
+// Uma sala aceita entrada quando está no lobby e não está cheia. Devolve mapa code -> info.
+export async function roomsJoinable(codes) {
+  if (!hasSupabase) return {};
+  const uniq = [...new Set((codes || []).filter(Boolean))];
+  if (!uniq.length) return {};
+  const { data: rooms, error } = await supabase
+    .from("rooms").select("id, phase, status").in("id", uniq);
+  if (error) throw error;
+  const { data: rps } = await supabase
+    .from("room_players").select("room_id").in("room_id", uniq);
+  const counts = {};
+  for (const r of rps || []) counts[r.room_id] = (counts[r.room_id] || 0) + 1;
+  const map = {};
+  for (const r of rooms || []) {
+    const inLobby = r.phase === "lobby";
+    const count = counts[r.id] || 0;
+    const full = count >= ROOM_CAP;
+    map[r.id] = {
+      phase: r.phase, status: r.status, count, exists: true,
+      joinable: inLobby && !full,
+      reason: !inLobby ? "Partida em andamento" : full ? "Sala cheia" : "",
+    };
+  }
+  return map;
 }
 
 // Confronto direto entre dois usuários (vitórias de cada, gols).

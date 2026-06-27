@@ -3,12 +3,26 @@ import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl } from "./bits.js
 import { updateMyProfile } from "../lib/auth.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
-  acceptFriend, removeFriendship, headToHead,
+  acceptFriend, removeFriendship, headToHead, isOnline, roomsJoinable,
 } from "../lib/social.js";
+import { createInvite } from "../lib/invites.js";
 
-export default function Profile({ myId, profile, onClose, onProfileChange }) {
+// "visto há X" a partir de um timestamp (presença dos amigos).
+function timeAgo(ts) {
+  if (!ts) return "";
+  const ms = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `há ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `há ${h} h`;
+  return `há ${Math.floor(h / 24)} d`;
+}
+
+export default function Profile({ myId, profile, onClose, onProfileChange, onEnterRoom, myRoom }) {
   const [stats, setStats] = useState(null);
   const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [] });
+  const [roomStatus, setRoomStatus] = useState({}); // code -> { joinable, reason } das salas dos amigos
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -17,11 +31,15 @@ export default function Profile({ myId, profile, onClose, onProfileChange }) {
       const [s, f] = await Promise.all([getStats(myId), listFriendships(myId)]);
       setStats(s);
       setFriends(f);
+      // Bloco B — joinabilidade das salas onde os amigos estão AGORA (pra "Entrar na sala").
+      const codes = f.friends.map((x) => x.profile?.current_room).filter(Boolean);
+      setRoomStatus(codes.length ? await roomsJoinable(codes).catch(() => ({})) : {});
     } catch (e) {
       setNotice(e?.message || "Falha ao carregar.");
     }
   }
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [myId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { refresh(); }, [myId]);
 
   return (
     <div className="screen profile-screen">
@@ -38,6 +56,9 @@ export default function Profile({ myId, profile, onClose, onProfileChange }) {
       <FriendsPanel
         myId={myId}
         friends={friends}
+        roomStatus={roomStatus}
+        myRoom={myRoom}
+        onEnterRoom={onEnterRoom}
         busy={busy}
         setBusy={setBusy}
         setNotice={setNotice}
@@ -165,7 +186,7 @@ function StatsRow({ stats }) {
 }
 
 // ---------- Amigos ----------
-function FriendsPanel({ myId, friends, setNotice, refresh }) {
+function FriendsPanel({ myId, friends, roomStatus, myRoom, onEnterRoom, setNotice, refresh }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -247,7 +268,16 @@ function FriendsPanel({ myId, friends, setNotice, refresh }) {
       ) : (
         <div className="friend-list">
           {friends.friends.map((f) => (
-            <FriendCard key={f.friendshipId} myId={myId} f={f} onRemove={() => act(removeFriendship, f.friendshipId)} setNotice={setNotice} />
+            <FriendCard
+              key={f.friendshipId}
+              myId={myId}
+              f={f}
+              roomStatus={roomStatus}
+              myRoom={myRoom}
+              onEnterRoom={onEnterRoom}
+              onRemove={() => act(removeFriendship, f.friendshipId)}
+              setNotice={setNotice}
+            />
           ))}
         </div>
       )}
@@ -271,30 +301,73 @@ function FriendsPanel({ myId, friends, setNotice, refresh }) {
   );
 }
 
-// Amigo com confronto direto sob demanda.
-function FriendCard({ myId, f, onRemove, setNotice }) {
+// Pílula de presença: 🎮 em sala (online + current_room), online (verde) ou visto há X.
+function PresencePill({ online, inRoom, lastSeen }) {
+  if (inRoom) return <span className="friend-pill in-room">🎮 em sala</span>;
+  if (online) return <span className="friend-pill on">● online</span>;
+  return <span className="friend-pill off">{lastSeen ? `visto ${timeAgo(lastSeen)}` : "offline"}</span>;
+}
+
+// Amigo vivo: presença + ações (entrar na sala / convidar / desafiar) + confronto sob demanda.
+function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNotice }) {
   const [h2h, setH2h] = useState(null);
   const [open, setOpen] = useState(false);
+  const [sent, setSent] = useState(""); // "invite" | "challenge" — feedback do botão
+
+  const p = f.profile || {};
+  const online = isOnline(p.last_seen);
+  const inRoom = online && !!p.current_room;
+  const rs = inRoom ? roomStatus?.[p.current_room] : null;
 
   async function toggle() {
     const next = !open;
     setOpen(next);
     if (next && !h2h) {
-      try { setH2h(await headToHead(myId, f.profile.id)); }
+      try { setH2h(await headToHead(myId, p.id)); }
       catch (e) { setNotice(e?.message || "Falha no confronto."); }
     }
   }
 
+  async function invite(kind) {
+    try {
+      await createInvite({ fromId: myId, toId: p.id, kind, roomId: kind === "invite" ? myRoom?.code : null });
+      setSent(kind);
+      setTimeout(() => setSent(""), 2500);
+    } catch (e) { setNotice(e?.message || "Não foi possível enviar."); }
+  }
+
   return (
     <div className="friend-card">
-      <div className="friend-row" onClick={toggle} style={{ cursor: "pointer" }}>
-        <Avatar emoji={f.profile?.emoji} color={f.profile?.color} size={36} />
+      <div className="friend-row">
+        <Avatar emoji={p.emoji} color={p.color} size={36} online={online} />
         <div className="friend-meta">
-          <div className="friend-name">@{f.profile?.username}</div>
-          <div className="friend-team">{f.profile?.team_name || ""}</div>
+          <div className="friend-name">@{p.username} <PresencePill online={online} inRoom={inRoom} lastSeen={p.last_seen} /></div>
+          <div className="friend-team">{p.team_name || ""}</div>
         </div>
-        <span className="friend-h2h-toggle">{open ? "▲" : "Confronto ▾"}</span>
+        <span className="friend-h2h-toggle" onClick={toggle} style={{ cursor: "pointer" }}>{open ? "▲" : "Confronto ▾"}</span>
       </div>
+
+      <div className="friend-actions">
+        {inRoom && rs && (
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={!rs.joinable}
+            title={rs.joinable ? `Entrar na sala ${p.current_room}` : (rs.reason || "Sala indisponível")}
+            onClick={() => rs.joinable && onEnterRoom?.(p.current_room)}
+          >
+            {rs.joinable ? "Entrar na sala" : (rs.reason || "Sala fechada")}
+          </button>
+        )}
+        {myRoom?.code && (
+          <button className="btn btn-amber btn-sm" disabled={sent === "invite"} onClick={() => invite("invite")}>
+            {sent === "invite" ? "Convite enviado ✓" : "Convidar p/ sala"}
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm" disabled={sent === "challenge"} onClick={() => invite("challenge")}>
+          {sent === "challenge" ? "Desafio enviado ✓" : "Desafiar"}
+        </button>
+      </div>
+
       {open && (
         <div className="friend-h2h">
           {!h2h ? (
