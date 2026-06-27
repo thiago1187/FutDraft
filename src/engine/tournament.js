@@ -115,20 +115,26 @@ function createLeague(ids) {
 }
 
 // ---------- COPA (fase de grupos → mata-mata) ----------
-const GROUP_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const GROUP_NAMES = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
 
 function createCup(ids) {
   const teams = shuffle(ids);
   const n = teams.length;
-  const G = n >= 12 ? 4 : 2; // 4 grupos a partir de 12 times; senão 2
+  // Grupos de ~4 (estilo Copa do Mundo), escalando com o nº de times; mínimo 2 grupos.
+  const G = Math.max(2, Math.round(n / 4));
   const buckets = Array.from({ length: G }, () => []);
   teams.forEach((id, i) => buckets[i % G].push(id)); // distribui o mais uniforme possível
   const groups = buckets.map((gids, gi) => ({
-    name: GROUP_NAMES[gi],
+    name: GROUP_NAMES[gi] || `G${gi + 1}`,
     ids: gids,
     fixtures: roundRobin(gids),
   }));
   return { format: "cup", phase: "groups", groups, rounds: [], champion: null };
+}
+
+// Ordena linhas de classificação (mais pontos, saldo, gols pró).
+function cmpStanding(a, b) {
+  return b.Pts - a.Pts || b.GD - a.GD || b.GF - a.GF || String(a.id).localeCompare(String(b.id));
 }
 
 // Tabela de classificação a partir de um conjunto de ids + jogos (liga ou grupo).
@@ -160,23 +166,39 @@ function groupsDone(t) {
   return t.groups.every((g) => g.fixtures.every((f) => f.played));
 }
 
-// Monta o mata-mata da copa com os 2 primeiros de cada grupo (cruzamento 1ºX2º).
+// Monta o mata-mata da copa: 2 primeiros de cada grupo + melhores 3ºs para fechar uma
+// chave de potência de 2 (estilo Copa do Mundo 2026). Sobras de chave entram com bye.
 function buildCupKnockout(t) {
-  const q = t.groups.map((g) => {
-    const tb = standingsFrom(g.ids, g.fixtures);
-    return [tb[0]?.id, tb[1]?.id]; // [1º, 2º]
-  });
-  const G = q.length;
-  let pairs;
-  if (G === 2) {
-    pairs = [[q[0][0], q[1][1]], [q[1][0], q[0][1]]];
-  } else { // 4 grupos: cruzamento padrão p/ 1º de um grupo só reencontrar 1º na final
-    pairs = [
-      [q[0][0], q[1][1]], [q[2][0], q[3][1]],
-      [q[1][0], q[0][1]], [q[3][0], q[2][1]],
-    ];
+  const tables = t.groups.map((g) => standingsFrom(g.ids, g.fixtures));
+  const winners = tables.map((tb) => tb[0]).filter(Boolean).sort(cmpStanding);
+  const runners = tables.map((tb) => tb[1]).filter(Boolean).sort(cmpStanding);
+  const thirds = tables.map((tb) => tb[2]).filter(Boolean).sort(cmpStanding);
+
+  // Classificados: vencedores e vices; completa com os melhores 3ºs até a potência de 2.
+  const qualifiers = [...winners, ...runners];
+  const target = nextPow2(qualifiers.length);
+  for (const r of thirds) {
+    if (qualifiers.length >= target) break;
+    qualifiers.push(r);
   }
-  t.rounds = [pairs.map(([h, a]) => mkMatch(h, a, 0))];
+
+  // Semeia como no mata-mata (melhor x pior); vagas faltantes para potência de 2 = bye.
+  const seeds = qualifiers.map((r) => r.id);
+  const S = nextPow2(seeds.length);
+  const entrants = [...seeds, ...Array(S - seeds.length).fill(null)];
+  const round0 = [];
+  for (let i = 0; i < S / 2; i++) {
+    const homeId = entrants[i];
+    const awayId = entrants[S - 1 - i];
+    const m = mkMatch(homeId, awayId, 0);
+    if (awayId === null && homeId !== null) {
+      m.isBye = true;
+      m.played = true;
+      m.result = { bye: true, winner: "home", homeGoals: 0, awayGoals: 0, events: [] };
+    }
+    round0.push(m);
+  }
+  t.rounds = [round0];
   t.phase = "knockout";
 }
 

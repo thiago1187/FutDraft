@@ -410,15 +410,17 @@ export default function App() {
     },
     addBot() {
       const r = roomRef.current;
+      const botCap = (st) => (st?.settings?.format === "cup" ? 48 : 16);
       if (r && !r.isLocal) {
-        const players = r.getState().players;
-        if (players.length >= 16) return;
+        const st = r.getState();
+        const players = st.players;
+        if (players.length >= botCap(st)) return;
         const b = makeSquadBot(players);
         r.addPlayerRow({ is_bot: true, user_id: null, squad_slug: b.squadId, team_name: b.teamName, emoji: b.emoji, color: b.color });
         return;
       }
       r.setState((prev) => {
-        if (prev.players.length >= 16) return prev;
+        if (prev.players.length >= botCap(prev)) return prev;
         return { ...prev, players: [...prev.players, makeSquadBot(prev.players)] };
       });
     },
@@ -458,7 +460,8 @@ export default function App() {
         const fmt = settings.format;
         const targetN = fmt === "league" ? (settings.leagueSize || 6) : fmt === "cup" ? (settings.cupSize || 8) : (settings.bracketSize || 4);
         const floor = fmt === "cup" ? 6 : 2;
-        return Math.min(16, Math.max(targetN, count, floor));
+        const cap = fmt === "cup" ? 48 : 16; // Copa escala até 48 (grupos de 4)
+        return Math.min(cap, Math.max(targetN, count, floor));
       };
 
       if (r && !r.isLocal) {
@@ -468,7 +471,7 @@ export default function App() {
         const local = [...prev.players];
         const target = targetFor(prev.settings, local.length);
         let guard = 0;
-        while (local.length < target && guard < 32) {
+        while (local.length < target && guard < 64) {
           const b = makeSquadBot(local);
           r.addPlayerRow({ is_bot: true, user_id: null, squad_slug: b.squadId, team_name: b.teamName, emoji: b.emoji, color: b.color });
           local.push(b);
@@ -486,7 +489,7 @@ export default function App() {
         const target = targetFor(prev.settings, prev.players.length);
         const players = [...prev.players];
         let guard = 0;
-        while (players.length < target && guard < 32) { players.push(makeSquadBot(players)); guard++; }
+        while (players.length < target && guard < 64) { players.push(makeSquadBot(players)); guard++; }
         const draft = buildDraft(players, prev.settings);
         return { ...prev, players, phase: "draft", draft, draftToken };
       });

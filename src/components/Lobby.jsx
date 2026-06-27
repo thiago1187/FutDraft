@@ -40,8 +40,13 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
   const shownTotal = Math.max(targetSize, state.players.length);
   // copa precisa de pelo menos 6 times (para a fase de grupos fazer sentido)
   const minSize = Math.max(isCup ? 6 : 2, state.players.length);
+  // Copa escala como Copa do Mundo (grupos de 4) até 48; outros formatos vão até 16.
+  const maxSize = isCup ? 48 : 16;
+  // Atalhos rápidos de nº de times (evita clicar de 1 em 1). Só os que cabem no formato.
+  const sizePresets = (isCup ? [16, 32, 48] : isLeague ? [8, 12, 16] : [4, 8, 16])
+    .filter((n) => n >= minSize && n <= maxSize);
   const emptySlots = Math.max(0, shownTotal - state.players.length);
-  const setSize = (n) => pick({ [sizeKey]: Math.min(16, Math.max(minSize, n)) });
+  const setSize = (n) => pick({ [sizeKey]: Math.min(maxSize, Math.max(minSize, n)) });
   const usedByOthers = state.players.filter((p) => p.id !== myId).map((p) => p.color);
 
   function copy() {
@@ -113,17 +118,30 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
             label="Número de times"
             value={shownTotal}
             min={minSize}
-            max={16}
+            max={maxSize}
             isHost={isHost}
             onChange={setSize}
             hint={
               isCup
-                ? `${shownTotal >= 12 ? 4 : 2} grupos → 2 de cada vão ao mata-mata. Vagas viram CPU.`
+                ? `${Math.max(2, Math.ceil(shownTotal / 4))} grupos de ~4 → 2 de cada (+ melhores 3ºs) vão ao mata-mata. Vagas viram CPU.`
                 : isLeague
                 ? "Pode ser ímpar — vagas viram CPU ao iniciar."
                 : "Sobras entram com bye — vagas viram CPU ao iniciar."
             }
           />
+          {isHost && sizePresets.length > 0 && (
+            <div className="size-presets">
+              {sizePresets.map((n) => (
+                <button
+                  key={n}
+                  className={"size-preset" + (shownTotal === n ? " is-active" : "")}
+                  onClick={() => setSize(n)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
           <Seg label="Dificuldade do draft" options={DIFFICULTIES} value={set.difficulty || "classic"} isHost={isHost} onPick={(v) => pick({ difficulty: v })} />
           <Seg label="Seleções no draft" options={POOLS} value={set.squadPool || "all"} isHost={isHost} onPick={(v) => pick({ squadPool: v })} />
           <Seg label="Tempo por jogada" options={TIMERS} value={set.turnTimer ?? 30} isHost={isHost} onPick={(v) => pick({ turnTimer: v })} />
@@ -217,7 +235,7 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
             );
           })}
 
-          {emptySlots > 0 && Array.from({ length: Math.min(emptySlots, 16) }).map((_, i) => (
+          {emptySlots > 0 && Array.from({ length: Math.min(emptySlots, maxSize) }).map((_, i) => (
             <div className="tecnico-card vaga" key={"v" + i}>
               <span className="vaga-plus">🤖</span>
               <span className="vaga-text">Vaga livre — CPU entra ao iniciar</span>
@@ -227,7 +245,7 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
             </div>
           ))}
 
-          {isHost && shownTotal < 16 && (
+          {isHost && shownTotal < maxSize && (
             <button className="tecnico-card vaga vaga-add" onClick={() => setSize(shownTotal + 1)}>
               <span className="vaga-plus">＋</span>
               <span className="vaga-text">Adicionar vaga livre (CPU)</span>

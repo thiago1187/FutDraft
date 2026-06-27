@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Logo } from "./bits.jsx";
-import { signIn, signUp, validEmail, requestPasswordReset } from "../lib/auth.js";
+import { signIn, signUp, validIdentifier, validEmail, requestPasswordReset } from "../lib/auth.js";
 
-// Tela de entrada: login, cadastro OU recuperação de senha (e-mail real → link de redefinição).
-// Ao autenticar, o listener de sessão no App troca de tela sozinho.
+// Tela de entrada: login, cadastro OU recuperação de senha.
+// Cadastro/login aceitam E-MAIL real OU nome de usuário no mesmo campo (detecta pelo "@").
+// E-mail real habilita recuperação de senha; só-usuário não tem caixa de entrada.
 export default function Auth({ onGuest, isLocal }) {
   const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState(""); // e-mail OU usuário
   const [password, setPassword] = useState("");
   const [teamName, setTeamName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,7 +24,7 @@ export default function Auth({ onGuest, isLocal }) {
   }
 
   const canSubmit =
-    validEmail(email) && password.length >= 6 && (!isSignup || teamName.trim().length >= 2);
+    validIdentifier(identifier) && password.length >= 6 && (!isSignup || teamName.trim().length >= 2);
 
   async function submit() {
     if (!canSubmit || busy) return;
@@ -33,13 +34,13 @@ export default function Auth({ onGuest, isLocal }) {
     try {
       if (isSignup) {
         await signUp({
-          email,
+          identifier,
           password,
           displayName: teamName.trim() || undefined,
           teamName: teamName.trim(),
         });
       } else {
-        await signIn({ email, password });
+        await signIn({ identifier, password });
       }
       // sucesso → onAuthChange no App assume daqui
     } catch (e) {
@@ -52,13 +53,13 @@ export default function Auth({ onGuest, isLocal }) {
     if (busy) return;
     setError("");
     setNotice("");
-    if (!validEmail(email)) {
-      setError("Digite um e-mail válido para receber o link.");
+    if (!validEmail(identifier)) {
+      setError("A recuperação só funciona com e-mail. Digite o e-mail da sua conta.");
       return;
     }
     setBusy(true);
     try {
-      await requestPasswordReset(email);
+      await requestPasswordReset(identifier);
       setNotice("Pronto! Se houver conta com esse e-mail, enviamos um link para redefinir a senha. Verifique a caixa de entrada (e o spam).");
     } catch (e) {
       setError(e?.message || "Não foi possível enviar o link.");
@@ -81,7 +82,7 @@ export default function Auth({ onGuest, isLocal }) {
         <p className="home-lede">
           Crie sua conta para ter <strong>perfil</strong>, <strong>amigos</strong>,
           <strong> histórico</strong> e <strong>confronto direto</strong>. Tudo salvo na nuvem —
-          entre de qualquer aparelho com seu e-mail e senha.
+          entre de qualquer aparelho com seu login e senha.
         </p>
 
         <div className="auth-perks">
@@ -107,21 +108,21 @@ export default function Auth({ onGuest, isLocal }) {
             </div>
 
             <p className="auth-hint">
-              Digite o e-mail da sua conta. Enviaremos um <strong>link</strong> para você
-              definir uma nova senha.
+              Digite o <strong>e-mail</strong> da sua conta. Enviaremos um link para você
+              definir uma nova senha. (Contas só com nome de usuário não têm recuperação por e-mail.)
             </p>
 
             <label className="auth-label">E-mail da conta</label>
             <input
               className="home-name-input"
               type="email"
-              value={email}
+              value={identifier}
               placeholder="ex.: voce@email.com"
               autoCapitalize="none"
               autoCorrect="off"
               autoComplete="email"
               spellCheck={false}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setIdentifier(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendReset()}
               disabled={isLocal || busy}
             />
@@ -129,7 +130,7 @@ export default function Auth({ onGuest, isLocal }) {
             <button
               className="btn btn-primary btn-block btn-xl auth-submit"
               onClick={sendReset}
-              disabled={!validEmail(email) || busy || isLocal}
+              disabled={!validEmail(identifier) || busy || isLocal}
             >
               {busy ? "Enviando…" : "Enviar link de recuperação"} <span className="arr">→</span>
             </button>
@@ -159,20 +160,26 @@ export default function Auth({ onGuest, isLocal }) {
               </button>
             </div>
 
-            <label className="auth-label">E-mail</label>
+            <label className="auth-label">E-mail ou nome de usuário</label>
             <input
               className="home-name-input"
-              type="email"
-              value={email}
-              placeholder="ex.: voce@email.com"
+              type="text"
+              value={identifier}
+              placeholder="seu@email.com ou um apelido"
               autoCapitalize="none"
               autoCorrect="off"
-              autoComplete="email"
+              autoComplete="username"
               spellCheck={false}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setIdentifier(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
               disabled={isLocal || busy}
             />
+            {isSignup && (
+              <p className="auth-hint">
+                Com <strong>e-mail</strong> você pode recuperar a senha depois. Só com
+                <strong> nome de usuário</strong> dá pra jogar igual, mas sem recuperação por e-mail.
+              </p>
+            )}
 
             <label className="auth-label">Senha</label>
             <input
