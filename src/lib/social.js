@@ -153,3 +153,28 @@ export async function headToHead(userA, userB) {
   // A função RETURNS TABLE → vem como array de uma linha.
   return Array.isArray(data) ? data[0] : data;
 }
+
+// ---------- Rivalidade (Bloco D) ----------
+// Últimos confrontos entre dois usuários (placar + data), do mais recente ao mais antigo.
+export async function recentMatches(userA, userB, limit = 6) {
+  if (!hasSupabase || !userA || !userB) return [];
+  const { data, error } = await supabase
+    .from("matches")
+    .select("id, home_user_id, away_user_id, home_score, away_score, home_pens, away_pens, winner_user_id, played_at, round")
+    .or(`and(home_user_id.eq.${userA},away_user_id.eq.${userB}),and(home_user_id.eq.${userB},away_user_id.eq.${userA})`)
+    .order("played_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+// Estatísticas (profile_stats) de um conjunto de usuários — base do ranking entre amigos.
+export async function statsFor(userIds) {
+  if (!hasSupabase || !userIds?.length) return [];
+  const { data, error } = await supabase
+    .from("profile_stats")
+    .select("user_id, username, matches_played, wins, draws, losses, goals_for, goals_against, titles")
+    .in("user_id", userIds);
+  if (error) throw error;
+  return data || [];
+}

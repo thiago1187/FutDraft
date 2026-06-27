@@ -2364,3 +2364,31 @@ body {
 .profile-invites { margin: 10px 0 4px; }
 .invite-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--red); color: #fff; font-size: 12px; font-weight: 800; vertical-align: middle; }
 .invite-row { border: 1.5px dashed var(--gold); border-radius: 10px; }
+
+/* Bloco D — rivalidade (freguês, sequência, histórico, ranking) */
+.fregues-badge { font-family: var(--head); font-weight: 700; font-size: 12px; padding: 5px 9px; border-radius: 8px; margin-bottom: 6px; }
+.fregues-badge.lead { background: rgba(245,165,36,0.18); color: #8a5a00; border: 1px solid var(--gold); }
+.fregues-badge.lose { background: rgba(233,78,39,0.12); color: #a3331a; border: 1px solid rgba(233,78,39,0.4); }
+.fregues-badge.tie { background: rgba(0,0,0,0.05); color: var(--muted, #8a8470); }
+.fregues-streak { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.fregues-streak.me { color: #2e7d4f; }
+.fregues-streak.them { color: #a3331a; }
+.h2h-history { margin-top: 8px; }
+.h2h-history-label { font-family: var(--head); font-weight: 700; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; margin-bottom: 4px; }
+.h2h-hrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.h2h-res { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 11px; color: #fff; }
+.h2h-res.V { background: #3f9c63; }
+.h2h-res.D { background: #e94e27; }
+.h2h-res.E { background: #9a9483; }
+.h2h-score { font-weight: 700; }
+.h2h-date { margin-left: auto; opacity: 0.6; font-size: 12px; }
+.profile-ranking { margin: 14px 0 4px; }
+.rank-table { display: flex; flex-direction: column; gap: 2px; }
+.rank-head, .rank-row { display: grid; grid-template-columns: 26px 1fr 32px 32px 32px 44px; align-items: center; gap: 4px; padding: 5px 8px; }
+.rank-head { font-family: var(--head); font-weight: 700; font-size: 11px; opacity: 0.65; }
+.rank-row { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+.rank-row.me { border-color: var(--gold); background: rgba(245,165,36,0.10); }
+.rank-pos { font-weight: 800; opacity: 0.7; text-align: center; }
+.rank-who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.rank-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank-num { text-align: center; font-weight: 700; font-size: 13px; }

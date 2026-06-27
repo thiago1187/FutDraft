@@ -4,8 +4,23 @@ import { updateMyProfile } from "../lib/auth.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
   acceptFriend, removeFriendship, headToHead, isOnline, roomsJoinable,
+  recentMatches, statsFor,
 } from "../lib/social.js";
 import { createInvite } from "../lib/invites.js";
+
+// Sequência atual entre os 2 (a partir dos confrontos já ordenados do mais recente).
+// Empate quebra a sequência. Retorna { who: "me"|"them"|null, n }.
+function computeStreak(matches, myId) {
+  let who = null, n = 0;
+  for (const m of matches) {
+    if (!m.winner_user_id) break;
+    const side = m.winner_user_id === myId ? "me" : "them";
+    if (who === null) { who = side; n = 1; }
+    else if (side === who) n++;
+    else break;
+  }
+  return { who, n };
+}
 
 // "visto há X" a partir de um timestamp (presença dos amigos).
 function timeAgo(ts) {
@@ -23,6 +38,7 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
   const [stats, setStats] = useState(null);
   const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [] });
   const [roomStatus, setRoomStatus] = useState({}); // code -> { joinable, reason } das salas dos amigos
+  const [ranking, setRanking] = useState([]); // Bloco D — círculo (eu + amigos) por títulos/aproveitamento
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -34,6 +50,12 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
       // Bloco B — joinabilidade das salas onde os amigos estão AGORA (pra "Entrar na sala").
       const codes = f.friends.map((x) => x.profile?.current_room).filter(Boolean);
       setRoomStatus(codes.length ? await roomsJoinable(codes).catch(() => ({})) : {});
+      // Bloco D — ranking do círculo (eu + amigos aceitos) a partir de profile_stats.
+      const profById = { [myId]: profile };
+      f.friends.forEach((x) => { if (x.profile) profById[x.profile.id] = x.profile; });
+      const ids = Object.keys(profById);
+      const rows = await statsFor(ids).catch(() => []);
+      setRanking(buildRanking(rows, profById, myId));
     } catch (e) {
       setNotice(e?.message || "Falha ao carregar.");
     }
@@ -67,7 +89,62 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
         refresh={refresh}
       />
 
+      <RankingPanel rows={ranking} myId={myId} />
+
       {notice && <div className="profile-notice">{notice}</div>}
+    </div>
+  );
+}
+
+// ---------- Ranking entre amigos (Bloco D) ----------
+// Monta as linhas do círculo (eu + amigos) a partir de profile_stats + os profiles
+// já em mãos (escudo/cor/time). Ordena por títulos, depois aproveitamento (V/J), depois V.
+function buildRanking(statRows, profById, myId) {
+  const rows = (statRows || []).map((s) => {
+    const p = profById[s.user_id] || {};
+    const J = Number(s.matches_played) || 0;
+    const V = Number(s.wins) || 0;
+    const T = Number(s.titles) || 0;
+    return {
+      id: s.user_id,
+      username: p.username || s.username || "—",
+      teamName: p.team_name || "",
+      emoji: p.emoji, color: p.color,
+      J, V, T, rate: J ? V / J : 0, isMe: s.user_id === myId,
+    };
+  });
+  rows.sort((a, b) => b.T - a.T || b.rate - a.rate || b.V - a.V);
+  return rows;
+}
+
+function RankingPanel({ rows, myId }) {
+  if (!rows?.length || (rows.length === 1 && rows[0].id === myId)) return null;
+  return (
+    <div className="profile-ranking">
+      <h3 className="profile-section-title">Ranking entre amigos</h3>
+      <div className="rank-table">
+        <div className="rank-head">
+          <span className="rank-pos">#</span>
+          <span className="rank-who">Técnico</span>
+          <span className="rank-num" title="Títulos">🏆</span>
+          <span className="rank-num" title="Jogos">J</span>
+          <span className="rank-num" title="Vitórias">V</span>
+          <span className="rank-num" title="Aproveitamento (V/J)">%</span>
+        </div>
+        {rows.map((r, i) => (
+          <div className={`rank-row ${r.isMe ? "me" : ""}`} key={r.id}>
+            <span className="rank-pos">{i + 1}</span>
+            <span className="rank-who">
+              <Avatar emoji={r.emoji} color={r.color} size={22} />
+              <span className="rank-name">@{r.username}{r.isMe && <span className="tag tag-you">você</span>}</span>
+            </span>
+            <span className="rank-num">{r.T}</span>
+            <span className="rank-num">{r.J}</span>
+            <span className="rank-num">{r.V}</span>
+            <span className="rank-num">{Math.round(r.rate * 100)}%</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -340,6 +417,7 @@ function PresencePill({ online, inRoom, lastSeen }) {
 // Amigo vivo: presença + ações (entrar na sala / convidar / desafiar) + confronto sob demanda.
 function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNotice }) {
   const [h2h, setH2h] = useState(null);
+  const [matches, setMatches] = useState(null); // últimos confrontos (Bloco D)
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(""); // "invite" | "challenge" — feedback do botão
 
@@ -352,8 +430,11 @@ function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNot
     const next = !open;
     setOpen(next);
     if (next && !h2h) {
-      try { setH2h(await headToHead(myId, p.id)); }
-      catch (e) { setNotice(e?.message || "Falha no confronto."); }
+      try {
+        const [hh, ms] = await Promise.all([headToHead(myId, p.id), recentMatches(myId, p.id, 6)]);
+        setH2h(hh);
+        setMatches(ms);
+      } catch (e) { setNotice(e?.message || "Falha no confronto."); }
     }
   }
 
@@ -404,12 +485,52 @@ function FriendCard({ myId, f, roomStatus, myRoom, onEnterRoom, onRemove, setNot
           ) : Number(h2h.matches_played) === 0 ? (
             <span className="muted profile-mini">Vocês ainda não se enfrentaram.</span>
           ) : (
-            <div className="h2h-grid">
-              <div className="h2h-cell"><b>{h2h.a_wins}</b><span>suas vitórias</span></div>
-              <div className="h2h-cell"><b>{h2h.draws}</b><span>empates</span></div>
-              <div className="h2h-cell"><b>{h2h.b_wins}</b><span>dele(a)</span></div>
-              <div className="h2h-cell"><b>{h2h.a_goals}-{h2h.b_goals}</b><span>gols (você-ele)</span></div>
-            </div>
+            <>
+              {/* Troféu de freguês: quem lidera o confronto direto (empate técnico = sem selo) */}
+              {(() => {
+                const a = Number(h2h.a_wins), b = Number(h2h.b_wins);
+                if (a === b) return <div className="fregues-badge tie">🤝 Empate técnico no retrospecto</div>;
+                return a > b
+                  ? <div className="fregues-badge lead">🏆 Você lidera — @{p.username} é seu freguês</div>
+                  : <div className="fregues-badge lose">💀 @{p.username} leva a melhor sobre você</div>;
+              })()}
+              {/* Sequência atual */}
+              {(() => {
+                const st = computeStreak(matches || [], myId);
+                if (!st.n) return null;
+                return (
+                  <div className={`fregues-streak ${st.who}`}>
+                    {st.who === "me" ? "🔥 Você venceu" : "🥶 Ele(a) venceu"} os últimos {st.n} contra {st.who === "me" ? "ele(a)" : "você"}
+                  </div>
+                );
+              })()}
+              <div className="h2h-grid">
+                <div className="h2h-cell"><b>{h2h.a_wins}</b><span>suas vitórias</span></div>
+                <div className="h2h-cell"><b>{h2h.draws}</b><span>empates</span></div>
+                <div className="h2h-cell"><b>{h2h.b_wins}</b><span>dele(a)</span></div>
+                <div className="h2h-cell"><b>{h2h.a_goals}-{h2h.b_goals}</b><span>gols (você-ele)</span></div>
+              </div>
+              {matches && matches.length > 0 && (
+                <div className="h2h-history">
+                  <div className="h2h-history-label">Últimos confrontos</div>
+                  {matches.map((m) => {
+                    const meHome = m.home_user_id === myId;
+                    const my = meHome ? m.home_score : m.away_score;
+                    const their = meHome ? m.away_score : m.home_score;
+                    const res = m.winner_user_id === myId ? "V" : m.winner_user_id ? "D" : "E";
+                    const hasPens = m.home_pens != null && m.away_pens != null;
+                    const pens = hasPens ? ` (${meHome ? m.home_pens : m.away_pens}-${meHome ? m.away_pens : m.home_pens} pen)` : "";
+                    return (
+                      <div className="h2h-hrow" key={m.id}>
+                        <span className={`h2h-res ${res}`}>{res}</span>
+                        <span className="h2h-score">{my}-{their}{pens}</span>
+                        <span className="h2h-date">{new Date(m.played_at).toLocaleDateString("pt-BR")}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
           <button className="btn btn-ghost btn-sm friend-remove" onClick={onRemove}>Remover amigo</button>
         </div>
