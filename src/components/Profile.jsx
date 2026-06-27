@@ -5,6 +5,7 @@ import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
   acceptFriend, removeFriendship, headToHead,
 } from "../lib/social.js";
+import TacticPresets from "./TacticPresets.jsx";
 
 export default function Profile({ myId, profile, onClose, onProfileChange }) {
   const [stats, setStats] = useState(null);
@@ -34,6 +35,8 @@ export default function Profile({ myId, profile, onClose, onProfileChange }) {
       <MyCard profile={profile} stats={stats} onProfileChange={onProfileChange} setNotice={setNotice} />
 
       <StatsRow stats={stats} />
+
+      <TacticPresets setNotice={setNotice} />
 
       <FriendsPanel
         myId={myId}

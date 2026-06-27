@@ -2401,6 +2401,29 @@ body {
 .profile-section-title { font-family: var(--display); font-size: 20px; text-transform: uppercase; color: var(--ink); margin: 22px 0 12px; }
 .profile-subtitle { font-family: var(--head); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted2); margin: 16px 0 8px; }
 .profile-mini { font-size: 13px; padding: 4px 2px; }
+
+/* ---- Presets de tática no perfil ---- */
+.profile-presets-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.preset-list { display: flex; flex-direction: column; gap: 8px; }
+.preset-row { display: flex; align-items: center; gap: 11px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 11px; padding: 10px 12px; }
+.preset-meta { flex: 1; min-width: 0; }
+.preset-name { font-family: var(--head); font-weight: 700; font-size: 14px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.preset-default { font-family: var(--head); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--gold); background: rgba(199,162,74,.14); border-radius: 6px; padding: 2px 6px; }
+.preset-summary { font-family: var(--body); font-size: 12px; color: var(--muted2); margin-top: 2px; }
+.preset-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.preset-del { color: var(--red); }
+.preset-editor { background: var(--cream); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 10px; }
+.preset-seg-block { display: flex; flex-direction: column; gap: 5px; }
+.preset-seg-label { font-family: var(--head); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted2); }
+.preset-seg { display: flex; gap: 6px; }
+.preset-seg-item { flex: 1; font-family: var(--head); font-weight: 600; font-size: 12px; color: var(--ink); background: var(--paper); border: 1.5px solid var(--line); border-radius: 9px; padding: 9px 4px; cursor: pointer; transition: border-color .12s, background .12s; }
+.preset-seg-item.is-on { border-color: var(--gold); background: rgba(199,162,74,.14); color: var(--ink); }
+.preset-slider { display: flex; align-items: center; gap: 10px; }
+.preset-slider input[type="range"] { flex: 1; }
+.preset-slider span { font-family: var(--head); font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--muted2); }
+.preset-slider span.on { color: var(--gold); }
+.preset-editor-actions { display: flex; gap: 8px; margin-top: 2px; }
+
 .friend-search { margin-bottom: 8px; }
 .friend-list { display: flex; flex-direction: column; gap: 8px; }
 .friend-row { display: flex; align-items: center; gap: 11px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 11px; padding: 9px 12px; }
