@@ -15,7 +15,7 @@ import { winProb } from "./winprob.js";
 import { findFormation } from "./formations.js";
 
 const N_QUICK = Number(process.argv[2]) || 20000; // sim rápida (rápida → N alto)
-const N_LIVE = Number(process.argv[3]) || 2200;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão não dar flaky)
+const N_LIVE = Number(process.argv[3]) || 3000;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão não dar flaky)
 
 // ---------- elencos sintéticos ----------
 const SLOTS = [
@@ -197,7 +197,83 @@ function calibTactics() {
   return pass;
 }
 
+// ========== 4) A/B de funcionalidade (Prompt 2) — `--ab` ==========
+import { lambdas, winPct, liveAB, tokens } from "./ab.js";
+
+function abLine(name, metric, A, B, dir, sig) {
+  const d = B - A, ok = sig && (dir === 0 || Math.sign(d) === Math.sign(dir));
+  const tag = ok ? "OK" : sig ? "DIR✗" : "MORTO";
+  console.log(`  [${tag}] ${name.padEnd(26)} ${metric.padEnd(20)} A=${A.toFixed(3)}  B=${B.toFixed(3)}  Δ=${d >= 0 ? "+" : ""}${d.toFixed(3)}`);
+  return ok;
+}
+function calibAB() {
+  const N = Number(process.argv.find((a, i) => process.argv[i - 1] === "--ab")) || 8000;
+  console.log(`\n================ A/B DE FUNCIONALIDADE (live N=${N}/célula) ================`);
+  let pass = true;
+  const home = tokens(80), away = tokens(80);
+  const base = lambdas(home, away);
+
+  console.log("\n§1 ALAVANCAS TÁTICAS (uma de cada vez, resto neutro; mandante recebe a tática):");
+  // Mentalidade: gols feitos (λ_home), gols sofridos (λ_away), win%
+  {
+    const A = lambdas(home, away, { posture: "defensivo" }), B = lambdas(home, away, { posture: "ofensivo" });
+    pass &= abLine("Mentalidade", "gols feitos (λ)", A.home, B.home, +1, Math.abs(B.home - A.home) > 0.02);
+    pass &= abLine("  (Retranca→Ataque)", "gols sofridos (λ)", A.away, B.away, +1, Math.abs(B.away - A.away) > 0.02);
+    const wA = winPct(home, away, { posture: "defensivo" }), wB = winPct(home, away, { posture: "ofensivo" });
+    console.log(`  [info] win%: Retranca=${(wA * 100).toFixed(1)}%  Ataque=${(wB * 100).toFixed(1)}%  (base 50%) → ${wB >= wA ? "Ataque ≥ Retranca ✓" : "⚠ Retranca vence mais (suspeito)"}`);
+    pass &= (wB >= wA);
+  }
+  // Linha: xG sofrido (λ_away) baixa vs alta
+  {
+    const A = lambdas(home, away, { line: "baixa" }), B = lambdas(home, away, { line: "alta" });
+    pass &= abLine("Linha defensiva", "xG sofrido (λ_adv)", A.away, B.away, +1, Math.abs(B.away - A.away) > 0.02);
+  }
+  // Pressing: faltas + cartões (live) leve vs pressão
+  {
+    const A = liveAB({ marking: "leve" }, N), B = liveAB({ marking: "pressao" }, N);
+    pass &= abLine("Pressing", "faltas (mandante)", A.fouls, B.fouls, +1, Math.abs(B.fouls - A.fouls) > 2 * (A.foulsSE + B.foulsSE));
+    pass &= abLine("  (Leve→Pressão)", "cartões (mandante)", A.cards, B.cards, +1, Math.abs(B.cards - A.cards) > 0.05);
+  }
+  // Construção: nº de passes (live) toque vs direto
+  {
+    const A = liveAB({ build: 0.1 }, N), B = liveAB({ build: 0.9 }, N);
+    pass &= abLine("Construção", "passes tentados", A.passAtt, B.passAtt, -1, Math.abs(B.passAtt - A.passAtt) > 1);
+    pass &= abLine("  (Toque→Direto)", "passe certo %", A.passPct, B.passPct, -1, Math.abs(B.passPct - A.passPct) > 0.005);
+  }
+
+  console.log("\n§2 SINERGIA TÁTICA × ELENCO (efeito CONDICIONAL, escala com o atributo):");
+  {
+    // linha alta vs média: o quanto a defesa concede A MAIS. Com zaga FRACA o salto é MAIOR.
+    const strong = tokens(80, { defOvr: 90 }), weak = tokens(80, { defOvr: 64 });
+    const dStrong = lambdas(strong, away, { line: "alta" }).away - lambdas(strong, away, { line: "media" }).away;
+    const dWeak = lambdas(weak, away, { line: "alta" }).away - lambdas(weak, away, { line: "media" }).away;
+    pass &= abLine("Linha alta × zaga", "Δ xG sofrido (alta-média)", dStrong, dWeak, +1, dWeak > dStrong + 0.01);
+    console.log(`  → zaga fraca sofre ${(dWeak / Math.max(dStrong, 1e-9)).toFixed(1)}× mais com linha alta (condicional ✓)`);
+  }
+
+  console.log("\n§3 OVER POR SETOR (atributo move a métrica do setor):");
+  {
+    pass &= abLine("+Ataque (+8)", "xG criado (λ_home)", base.home, lambdas(tokens(80, { ATT: 8 }), away).home, +1, true);
+    pass &= abLine("+Defesa (+8)", "xG sofrido (λ_away)", base.away, lambdas(tokens(80, { DEF: 8 }), away).away, -1, true);
+    pass &= abLine("+Goleiro (+8)", "xG sofrido (λ_away)", base.away, lambdas(tokens(80, { GK: 8 }), away).away, -1, true);
+    const mid = liveAB(null, N, { MID: 8 });
+    pass &= abLine("+Meio (+8)", "posse (mandante)", 0.5, mid.poss, +1, Math.abs(mid.poss - 0.5) > 0.005);
+    // monotonia do win% com o over
+    const w0 = winPct(tokens(80), away), w5 = winPct(tokens(85), away), w10 = winPct(tokens(90), away);
+    const mono = w0 < w5 && w5 < w10;
+    console.log(`  [${mono ? "OK" : "DIR✗"}] win% monotônico com over    +0=${(w0 * 100).toFixed(1)}%  +5=${(w5 * 100).toFixed(1)}%  +10=${(w10 * 100).toFixed(1)}%`);
+    pass &= mono;
+  }
+  return !!pass;
+}
+
 // ========== run ==========
+if (process.argv.includes("--ab")) {
+  const r = calibAB();
+  console.log("\n================ RESULTADO A/B ================");
+  console.log(r ? "✓ Toda alavanca/atributo move a métrica certa na direção certa (nenhum botão morto)." : "✗ Há botão morto ou direção errada — ver [MORTO]/[DIR✗] acima.");
+  process.exit(r ? 0 : 1);
+}
 console.log("================ CALIBRAÇÃO DE REALISMO — FutDraft ================");
 const a = calibQuick();
 const b = calibLive();

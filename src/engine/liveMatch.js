@@ -289,7 +289,9 @@ export function createLiveMatch(home, away, opts = {}) {
     const pressInt = t[opp].marking === "pressao" ? 1.5 : 1;
     const tackler = presser ? effOvr(presser) : 65;
     const drib = effOvr(c);
-    let loseP = clamp(0.05 * pressInt * (pd < 11 ? 2.1 : pd < 20 ? 1.2 : 0.6) + (tackler - drib) / 300, 0.01, 0.26);
+    // qualidade do portador vs desarme pesa MAIS na perda (coef /160) → time melhor
+    // (ex.: meio mais forte) segura a bola e tem mais POSSE (antes era quase inerte).
+    let loseP = clamp(0.05 * pressInt * (pd < 11 ? 2.1 : pd < 20 ? 1.2 : 0.6) + (tackler - drib) / 160, 0.01, 0.26);
     if (rnd() < loseP) {
       turnover(opp, "tackle");
       return;
@@ -336,7 +338,9 @@ export function createLiveMatch(home, away, opts = {}) {
     // mais com pressão adversária, jogo direto e contra linha alta. Toque erra menos.
     state.stats.passAtt[idx(poss)]++;
     const oppT = state.tactics[other(poss)];
-    const failP = clamp(0.12 + (oppT.marking === "pressao" ? 0.05 : 0) + (oppT.line === "alta" ? 0.03 : 0) + direct * 0.06, 0.06, 0.3);
+    // qualidade do passador reduz o erro (meio/over mais forte → mais passe certo e posse).
+    const qual = (effOvr(c) - 78) / 240;
+    const failP = clamp(0.12 + (oppT.marking === "pressao" ? 0.05 : 0) + (oppT.line === "alta" ? 0.03 : 0) + direct * 0.06 - qual, 0.05, 0.32);
     if (rnd() < failP) {
       turnover(other(poss), "intercept");
       return;
@@ -381,7 +385,7 @@ export function createLiveMatch(home, away, opts = {}) {
     const off = cardOffender(side, null);
     if (!off) return false;
     const r = rnd();
-    if (r < 0.0033 * press) { doRedCard(side, off, "Cartão vermelho"); return true; } // direto (raro)
+    if (r < 0.0036 * press) { doRedCard(side, off, "Cartão vermelho"); return true; } // direto (raro)
     if (r < clamp(0.18 * press, 0, 0.5)) {
       if ((off.yellow || 0) >= 1) {
         off.yellow = 2;

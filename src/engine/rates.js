@@ -38,7 +38,10 @@ const SCALE = 22; // 22 pts de overall ≈ e^1 no λ
 const BASE = 1.22; // gols/time/90 num confronto equilibrado
 const MENT = {
   ataque: { self: 1.25, opp: 1.18 }, // ataque total: faço mais gols, MAS abro pro adversário
-  retranca: { self: 0.8, opp: 0.72 }, // retranca: sufoca os dois
+  // retranca: sufoca os dois. opp 0.78 (não 0.72) p/ a razão self/opp (0.80/0.78=1.026)
+  // ficar ABAIXO da do ataque (1.25/1.18=1.059) → retranca não "ganha de graça" mais que
+  // o ataque contra time igual (corrige a inversão de win% achada na auditoria A/B §1).
+  retranca: { self: 0.8, opp: 0.78 },
   equilibrio: { self: 1, opp: 1 },
 };
 function mentOf(t) {
