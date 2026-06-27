@@ -84,6 +84,37 @@ export async function removeFriendship(friendshipId) {
   if (error) throw error;
 }
 
+// ---------- Presença (Bloco A) ----------
+// Janela para considerar um amigo "online" a partir do último heartbeat.
+export const ONLINE_WINDOW_MS = 60_000;
+
+// "Visto agora" — derivamos online de last_seen recente (< ONLINE_WINDOW_MS).
+export function isOnline(lastSeen) {
+  if (!lastSeen) return false;
+  return Date.now() - new Date(lastSeen).getTime() < ONLINE_WINDOW_MS;
+}
+
+// Heartbeat leve: marca o usuário como visto agora (chamado periodicamente pelo app).
+export async function touchPresence(userId) {
+  if (!hasSupabase || !userId) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ last_seen: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+// Define (código) ou limpa (null) a sala atual do usuário. Também renova last_seen, já
+// que entrar/sair de sala é sinal de atividade. Base de "em sala" e "entrar na sala do amigo".
+export async function setCurrentRoom(userId, roomCode) {
+  if (!hasSupabase || !userId) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ current_room: roomCode || null, last_seen: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
 // Confronto direto entre dois usuários (vitórias de cada, gols).
 export async function headToHead(userA, userB) {
   if (!hasSupabase) return null;

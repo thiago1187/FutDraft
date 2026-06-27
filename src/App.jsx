@@ -32,7 +32,7 @@ import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
-import { listFriendships } from "./lib/social.js";
+import { listFriendships, touchPresence, setCurrentRoom } from "./lib/social.js";
 import { randomSeed } from "./engine/rng.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
@@ -190,6 +190,29 @@ export default function App() {
     return () => { alive = false; };
   }, [authUid, showProfile]);
 
+  // Bloco A — Presença: heartbeat de last_seen enquanto o app está aberto e logado.
+  // Marca "visto agora" ao montar, a cada ~30s e ao reativar a aba (foco). Os amigos
+  // derivam "online" de last_seen recente (< 60s). Best-effort: nunca quebra o app.
+  useEffect(() => {
+    if (!authUid) return;
+    let alive = true;
+    const beat = () => { if (alive) touchPresence(authUid).catch(() => {}); };
+    beat();
+    const iv = setInterval(beat, 30_000);
+    const onVisible = () => { if (document.visibilityState === "visible") beat(); };
+    document.addEventListener("visibilitychange", onVisible);
+    // Best-effort ao fechar/descarregar: solta a current_room (a presença também expira
+    // sozinha por last_seen, mas isso some "em sala" na hora para quem fecha de propósito).
+    const onLeaveApp = () => { setCurrentRoom(authUid, null).catch(() => {}); };
+    window.addEventListener("pagehide", onLeaveApp);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", onLeaveApp);
+    };
+  }, [authUid]);
+
   useEffect(() => {
     roomRef.current = room;
   }, [room]);
@@ -237,6 +260,8 @@ export default function App() {
     saveSession({ code: r.code, name });
     setSession({ code: r.code, name });
     setScreen("room");
+    // Bloco A — marca que estou nesta sala (só online + logado; sala local não tem rooms).
+    if (authUid && !r.isLocal) setCurrentRoom(authUid, r.code).catch(() => {});
   }
 
   async function onCreate(name) {
@@ -333,6 +358,8 @@ export default function App() {
   }
 
   async function leave() {
+    // Bloco A — saí da sala: limpa current_room (não estou mais "em sala").
+    if (authUid) setCurrentRoom(authUid, null).catch(() => {});
     if (roomRef.current) await roomRef.current.leave();
     clearSession();
     setSession(null);
