@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Avatar, Crown, TEAM_COLORS, TEAM_EMOJIS, TEAM_FLAGS, flagUrl } from "./bits.jsx";
+import { listFriendships, sendFriendRequest, acceptFriend } from "../lib/social.js";
+import { isUuid } from "../lib/history.js";
 
 const FORMATS = [
   { id: "knockout", label: "Mata-mata" },
@@ -53,6 +55,35 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
     if (n && n.trim()) actions.addLocalPlayer(n.trim());
   }
   const pick = (patch) => isHost && actions.setSettings(patch);
+
+  // ---- Amigos: status por jogador da sala (online + logado) ----
+  const canFriend = !isLocal && isUuid(myId);
+  const [friendsMap, setFriendsMap] = useState({});
+  async function loadFriends() {
+    if (!canFriend) return;
+    try {
+      const { friends, incoming, outgoing } = await listFriendships(myId);
+      const m = {};
+      friends.forEach((f) => { if (f.profile) m[f.profile.id] = { st: "accepted" }; });
+      incoming.forEach((f) => { if (f.profile) m[f.profile.id] = { st: "incoming", fid: f.friendshipId }; });
+      outgoing.forEach((f) => { if (f.profile) m[f.profile.id] = { st: "outgoing" }; });
+      setFriendsMap(m);
+    } catch (_) { /* silencioso */ }
+  }
+  useEffect(() => { loadFriends(); /* eslint-disable-next-line */ }, [myId, isLocal]);
+
+  async function addFriend(id) { try { await sendFriendRequest(myId, id); } catch (_) {} loadFriends(); }
+  async function acceptReq(fid) { try { await acceptFriend(fid); } catch (_) {} loadFriends(); }
+
+  function friendBtn(p) {
+    if (!canFriend || p.isBot || p.id === myId || !isUuid(p.id)) return null;
+    const f = friendsMap[p.id];
+    if (!f) return <button className="tecnico-friend" title="Adicionar amigo" onClick={() => addFriend(p.id)}>＋ amigo</button>;
+    if (f.st === "accepted") return <span className="tecnico-friend is-on" title="Vocês já são amigos">✓ amigo</span>;
+    if (f.st === "outgoing") return <span className="tecnico-friend pend" title="Pedido enviado">pendente</span>;
+    if (f.st === "incoming") return <button className="tecnico-friend" title="Aceitar pedido" onClick={() => acceptReq(f.fid)}>aceitar ✓</button>;
+    return null;
+  }
 
   return (
     <div className="split lobby-split">
@@ -178,6 +209,7 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
                 {mine && (
                   <button className="btn btn-ghost btn-sm tecnico-edit" onClick={() => setEditing((v) => !v)}>{editing ? "Fechar" : "Editar"}</button>
                 )}
+                {!mine && friendBtn(p)}
                 {isHost && p.id !== myId && (
                   <button className="roster-x" title={p.isBot ? "Remover CPU" : "Remover da sala"} onClick={() => actions.removePlayer(p.id)}>×</button>
                 )}

@@ -2309,3 +2309,9 @@ body {
 .profile-flag-grid { max-height: 168px; overflow-y: auto; padding-right: 2px; }
 .profile-emoji .profile-flag { width: 82%; height: 82%; object-fit: cover; border-radius: 4px; display: block; }
 .profile-emoji:has(.profile-flag) { padding: 3px; }
+
+/* botão "adicionar amigo" no card do técnico (lobby) */
+.tecnico-friend { border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 8px; padding: 5px 11px; font-family: var(--head); font-weight: 600; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.tecnico-friend:hover { background: var(--green); border-color: var(--green); color: #fff; }
+.tecnico-friend.is-on { background: transparent; border-color: var(--green); color: var(--green-mid); cursor: default; }
+.tecnico-friend.pend { background: transparent; border-style: dashed; color: var(--muted2); cursor: default; }
