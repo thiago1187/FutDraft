@@ -1151,7 +1151,9 @@ body {
 
 /* ---------- Pênaltis (overlay) — turbinado ---------- */
 .pen-overlay {
-  position: fixed; inset: 0; z-index: 50;
+  /* pênalti (em jogo e disputa) tem que sobrepor QUALQUER painel aberto:
+     tática (60), pré-jogo (55), fim de partida (45), intervalo (40). */
+  position: fixed; inset: 0; z-index: 90;
   background: radial-gradient(120% 90% at 50% 38%, rgba(10,9,7,0.72) 0%, rgba(8,7,5,0.92) 70%, rgba(4,3,2,0.97) 100%);
   display: flex; align-items: center; justify-content: center;
   padding: 14px;

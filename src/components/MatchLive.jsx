@@ -549,8 +549,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         )}
       </div>
 
-      {/* TÁTICA — overlay (mantém o controle ao vivo sem ocupar a tela toda) */}
-      {tacticsOpen && iAmManager && (
+      {/* TÁTICA — overlay (mantém o controle ao vivo sem ocupar a tela toda).
+          Enquanto há pênalti (em jogo ou disputa), a tática fica escondida: o pênalti
+          tem prioridade total na tela e volta a aparecer quando o lance termina. */}
+      {tacticsOpen && iAmManager && !igPen && !pens && (
         <div className="mlf-tactics-overlay" onClick={() => setTacticsOpen(false)}>
           <div className="mlf-tactics-card" onClick={(e) => e.stopPropagation()}>
             <div className="mlf-tactics-head">
