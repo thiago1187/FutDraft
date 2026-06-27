@@ -143,6 +143,29 @@ export function computeLambdas(state) {
   lamA *= sideAdj(state.tactics.home.attackSide, A, B);
   lamB *= sideAdj(state.tactics.away.attackSide, B, A);
 
+  // Marcação individual no craque (Alavanca 2): marco UM jogador do adversário → corto
+  // a criação DELE (o λ do rival cai) com CUSTO (meu ataque cai um pouco, tiro um homem
+  // da estrutura). O efeito ESCALA com a decisividade do alvo (quanto ele pesa no ataque
+  // do time dele) → marcar um craque 90 muda muito mais que um coadjuvante. Se o alvo não
+  // é o principal criador, a marcação "perde o alvo" (corte mínimo) e vira só custo.
+  const markEffect = (markId, oppTok) => {
+    if (!markId) return { oppReduce: 1, selfCost: 1 };
+    let contrib = 0, total = 0, found = false;
+    for (const t of oppTok) {
+      if (t.out) continue;
+      const c = wOf(ATT_W, t) * effOvr(t);
+      total += c;
+      if (t.id === markId) { contrib = c; found = true; }
+    }
+    if (!found || total <= 0) return { oppReduce: 1, selfCost: 1 }; // alvo inexistente/expulso
+    const decis = contrib / total; // ~0.02 (coadjuvante) .. ~0.18 (craque referência)
+    return { oppReduce: 1 - clamp(decis * 1.7, 0, 0.30), selfCost: 0.955 };
+  };
+  const mkHome = markEffect(state.tactics.home.manMark, B); // home marca alguém do away
+  const mkAway = markEffect(state.tactics.away.manMark, A); // away marca alguém do home
+  lamB *= mkHome.oppReduce; lamA *= mkHome.selfCost;
+  lamA *= mkAway.oppReduce; lamB *= mkAway.selfCost;
+
   // Choque de forma por partida (constante sorteada na criação)
   lamA *= state.form?.home ?? 1;
   lamB *= state.form?.away ?? 1;

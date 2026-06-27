@@ -2333,3 +2333,10 @@ body {
 
 /* divisor "Avançado" na tela de tática ao vivo */
 .mlf-adv-label.mlf-adv-label { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); opacity: 0.8; }
+
+/* seletor de marcação individual (tática ao vivo) */
+.mlf-mark-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.mlf-mark { border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 8px; padding: 5px 9px; font-family: var(--head); font-weight: 600; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.mlf-mark:disabled { opacity: .5; cursor: default; }
+.mlf-mark.sel { background: var(--red); border-color: var(--red); color: #fff; }
+.mlf-mark-ovr { font-size: 10px; opacity: .7; }

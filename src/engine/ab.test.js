@@ -94,6 +94,41 @@ describe("Alavanca 1 — Foco de ataque / lado preferido", () => {
   });
 });
 
+describe("Alavanca 2 — Marcação individual no craque", () => {
+  const me = tokens(80);
+  const star = () => tokens(80, { set: { CA: 95 } }); // adversário com craque (CA id t9)
+
+  it("marcar o craque REDUZ o λ criado pelo rival", () => {
+    const s = star();
+    expect(lambdas(me, s, { manMark: "t9" }).away).toBeLessThan(lambdas(me, s).away - 0.05);
+  });
+
+  it("tem CUSTO: meu próprio λ cai um pouco ao marcar", () => {
+    const s = star();
+    expect(lambdas(me, s, { manMark: "t9" }).home).toBeLessThan(lambdas(me, s).home);
+  });
+
+  it("escala com a decisividade do alvo (craque 95 corta mais que um 82)", () => {
+    const s95 = tokens(80, { set: { CA: 95 } }), s82 = tokens(80, { set: { CA: 82 } });
+    const cut95 = lambdas(me, s95).away - lambdas(me, s95, { manMark: "t9" }).away;
+    const cut82 = lambdas(me, s82).away - lambdas(me, s82, { manMark: "t9" }).away;
+    expect(cut95).toBeGreaterThan(cut82);
+  });
+
+  it("marcar um coadjuvante corta MUITO menos (a marcação 'perde o alvo')", () => {
+    const s = star();
+    const cutStar = lambdas(me, s).away - lambdas(me, s, { manMark: "t9" }).away; // craque (CA)
+    const cutBack = lambdas(me, s).away - lambdas(me, s, { manMark: "t1" }).away; // lateral (LE)
+    expect(cutStar).toBeGreaterThan(cutBack * 2);
+  });
+
+  it("sem marcação (null) ou alvo inexistente não muda o λ (sem regressão)", () => {
+    const s = star();
+    expect(lambdas(me, s, { manMark: null }).away).toBeCloseTo(lambdas(me, s).away, 9);
+    expect(lambdas(me, s, { manMark: "zzz" }).away).toBeCloseTo(lambdas(me, s).away, 9);
+  });
+});
+
 describe("§5 Probabilidade ao vivo — bate com a simulação e reage certo", () => {
   // P exibida (winProb analítica) vs frequência simulada (50k finais). Erro < 0.8pp.
   it.each([
