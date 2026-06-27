@@ -28,6 +28,7 @@ import Tournament from "./components/Tournament.jsx";
 import Champion from "./components/Champion.jsx";
 import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
+import ResetPassword from "./components/ResetPassword.jsx";
 import Profile from "./components/Profile.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
@@ -134,6 +135,7 @@ export default function App() {
   const guestIdRef = useRef(clientId());
   const [auth, setAuth] = useState(hasSupabase ? undefined : null);
   const [guest, setGuest] = useState(false);
+  const [recovery, setRecovery] = useState(false); // veio do link de recuperação de senha
   const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
   const [incomingCount, setIncomingCount] = useState(0);
@@ -165,7 +167,11 @@ export default function App() {
     if (!hasSupabase) { setAuth(null); return; }
     let alive = true;
     getSession().then((s) => alive && setAuth(s)).catch(() => alive && setAuth(null));
-    const off = onAuthChange((s) => setAuth(s));
+    const off = onAuthChange((s, event) => {
+      setAuth(s);
+      // Voltou do link de recuperação → abre a tela de nova senha.
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+    });
     return () => { alive = false; off && off(); };
   }, []);
 
@@ -174,6 +180,8 @@ export default function App() {
   // cada refresh de token/foco da aba, e refazer o fetch a cada evento trocava a
   // referência de `profile` no meio da edição (apagava o que você digitava).
   const authUid = auth?.user?.id || null;
+  // Online (salas no Supabase) só para quem está LOGADO. Convidado joga em modo local.
+  const useOnline = hasSupabase && !!authUid;
   useEffect(() => {
     if (!authUid) { setProfile(null); return; }
     let alive = true;
@@ -243,18 +251,19 @@ export default function App() {
     setError("");
     setConnecting(true);
     try {
+      const local = !useOnline; // convidado → sala local
       let code = genCode();
       let tries = 0;
-      while (tries < 6 && (await roomExists(code))) {
+      while (tries < 6 && (await roomExists(code, { local }))) {
         code = genCode();
         tries++;
       }
       let initialState;
-      if (hasSupabase) {
+      if (useOnline) {
         // online relacional: net.js cria rooms + minha linha em room_players
         initialState = { phase: "lobby", settings: DEFAULT_SETTINGS };
       } else {
-        // local/blob
+        // local/blob (convidado ou Supabase ausente)
         const host = makeMe([], name);
         initialState = {
           v: 1, code, hostId: myId, phase: "lobby",
@@ -264,6 +273,7 @@ export default function App() {
       }
       const r = await openRoom(code, {
         create: true,
+        local,
         initialState,
         myUid: myId,
         profile: profileForRow(name),
@@ -283,6 +293,7 @@ export default function App() {
     try {
       const r = await openRoom(code, {
         create: false,
+        local: !useOnline,
         myUid: myId,
         profile: profileForRow(name),
         presenceMeta: { cid: myId, name },
@@ -311,6 +322,7 @@ export default function App() {
     try {
       const r = await openRoom(s.code, {
         create: false,
+        local: !useOnline,
         myUid: myId,
         profile: profileForRow(s.name),
         presenceMeta: { cid: myId, name: s.name },
@@ -734,6 +746,15 @@ export default function App() {
           <Logo />
           <p className="muted">Carregando…</p>
         </div>
+      </div>
+    );
+  }
+
+  // Veio do link de recuperação de senha → define a nova senha (tem prioridade).
+  if (recovery && auth) {
+    return (
+      <div className="app app-full">
+        <ResetPassword onDone={() => setRecovery(false)} />
       </div>
     );
   }

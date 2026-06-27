@@ -17,6 +17,8 @@ export const supabase = hasSupabase
       realtime: { params: { eventsPerSecond: 10 } },
       // Sessão persistida: o login (usuário+senha) precisa sobreviver a recarregar a
       // página e renovar o token sozinho. É a base de toda a migração para o Supabase.
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      // detectSessionInUrl: processa os tokens que voltam no link de recuperação de senha
+      // (dispara o evento PASSWORD_RECOVERY) — sem isso a redefinição por e-mail não abre.
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     })
   : null;

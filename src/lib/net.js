@@ -9,12 +9,14 @@ const TABLE = "rooms";
 // o estado "de motor" (draft/torneio em andamento) fica num jsonb enxuto rooms.state
 // (transitório — o schema ainda não modela o sorteio em curso nem o chaveamento).
 export async function openRoom(code, opts = {}) {
-  if (hasSupabase) return openSupabaseRoom(code, opts);
+  // `local: true` força o modo blob (localStorage) — usado por CONVIDADOS, que não têm
+  // conta e por isso não cabem no modelo online (RLS/FK exigem auth.uid() + profile).
+  if (hasSupabase && !opts.local) return openSupabaseRoom(code, opts);
   return openLocalRoom(code, opts);
 }
 
-export async function roomExists(code) {
-  if (!hasSupabase) {
+export async function roomExists(code, { local = false } = {}) {
+  if (!hasSupabase || local) {
     return Boolean(localStorage.getItem("futdraft_local_" + code));
   }
   const { data, error } = await supabase.from(TABLE).select("id").eq("id", code).maybeSingle();

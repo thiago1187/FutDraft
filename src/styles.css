@@ -270,6 +270,35 @@ body {
   font-size: 13px;
   margin-bottom: 12px;
 }
+.form-notice {
+  background: rgba(63, 156, 99, 0.12);
+  border: 1px solid rgba(63, 156, 99, 0.4);
+  color: var(--green-dark, #2f7d4e);
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.auth-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  margin-top: 12px;
+  padding: 4px 2px;
+  text-align: center;
+  color: var(--muted2);
+  font-family: var(--head);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-link:hover { color: var(--ink); }
+.auth-link:disabled { opacity: 0.5; cursor: default; }
+.auth-hint { font-family: var(--body); font-size: 13.5px; line-height: 1.5; color: var(--muted2); margin: 14px 2px 4px; }
 
 /* ---------- Banners / tags ---------- */
 .banner {

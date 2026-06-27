@@ -1,39 +1,68 @@
 import { useState } from "react";
 import { Logo } from "./bits.jsx";
-import { signIn, signUp, validUsername } from "../lib/auth.js";
+import { signIn, signUp, validEmail, requestPasswordReset } from "../lib/auth.js";
 
-// Tela de entrada: login OU cadastro, só com USUÁRIO + SENHA (sem e-mail).
+// Tela de entrada: login, cadastro OU recuperação de senha (e-mail real → link de redefinição).
 // Ao autenticar, o listener de sessão no App troca de tela sozinho.
 export default function Auth({ onGuest, isLocal }) {
-  const [mode, setMode] = useState("login"); // "login" | "signup"
-  const [username, setUsername] = useState("");
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [teamName, setTeamName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(""); // mensagens neutras (ex.: link de senha enviado)
 
   const isSignup = mode === "signup";
+  const isForgot = mode === "forgot";
+
+  function go(next) {
+    setMode(next);
+    setError("");
+    setNotice("");
+  }
+
   const canSubmit =
-    validUsername(username) && password.length >= 6 && (!isSignup || teamName.trim().length >= 2);
+    validEmail(email) && password.length >= 6 && (!isSignup || teamName.trim().length >= 2);
 
   async function submit() {
     if (!canSubmit || busy) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       if (isSignup) {
         await signUp({
-          username,
+          email,
           password,
-          displayName: username.trim(),
+          displayName: teamName.trim() || undefined,
           teamName: teamName.trim(),
         });
       } else {
-        await signIn({ username, password });
+        await signIn({ email, password });
       }
       // sucesso → onAuthChange no App assume daqui
     } catch (e) {
       setError(e?.message || "Não foi possível entrar.");
+      setBusy(false);
+    }
+  }
+
+  async function sendReset() {
+    if (busy) return;
+    setError("");
+    setNotice("");
+    if (!validEmail(email)) {
+      setError("Digite um e-mail válido para receber o link.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await requestPasswordReset(email);
+      setNotice("Pronto! Se houver conta com esse e-mail, enviamos um link para redefinir a senha. Verifique a caixa de entrada (e o spam).");
+    } catch (e) {
+      setError(e?.message || "Não foi possível enviar o link.");
+    } finally {
       setBusy(false);
     }
   }
@@ -52,7 +81,7 @@ export default function Auth({ onGuest, isLocal }) {
         <p className="home-lede">
           Crie sua conta para ter <strong>perfil</strong>, <strong>amigos</strong>,
           <strong> histórico</strong> e <strong>confronto direto</strong>. Tudo salvo na nuvem —
-          entre de qualquer aparelho com seu usuário e senha.
+          entre de qualquer aparelho com seu e-mail e senha.
         </p>
 
         <div className="auth-perks">
@@ -70,73 +99,129 @@ export default function Auth({ onGuest, isLocal }) {
           </div>
         )}
 
-        <div className="auth-tabs">
-          <button
-            className={"auth-tab" + (!isSignup ? " is-active" : "")}
-            onClick={() => { setMode("login"); setError(""); }}
-          >
-            Entrar
-          </button>
-          <button
-            className={"auth-tab" + (isSignup ? " is-active" : "")}
-            onClick={() => { setMode("signup"); setError(""); }}
-          >
-            Criar conta
-          </button>
-        </div>
-
-        <label className="auth-label">Usuário</label>
-        <input
-          className="home-name-input"
-          value={username}
-          maxLength={20}
-          placeholder="ex.: thiago10"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          onChange={(e) => setUsername(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          disabled={isLocal || busy}
-        />
-
-        <label className="auth-label">Senha</label>
-        <input
-          className="home-name-input"
-          type="password"
-          value={password}
-          maxLength={64}
-          placeholder="mínimo 6 caracteres"
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          disabled={isLocal || busy}
-        />
-
-        {isSignup && (
+        {isForgot ? (
+          /* ----- Recuperação de senha ----- */
           <>
-            <label className="auth-label">Nome do seu time</label>
+            <div className="auth-tabs">
+              <button className="auth-tab is-active">Recuperar senha</button>
+            </div>
+
+            <p className="auth-hint">
+              Digite o e-mail da sua conta. Enviaremos um <strong>link</strong> para você
+              definir uma nova senha.
+            </p>
+
+            <label className="auth-label">E-mail da conta</label>
             <input
               className="home-name-input"
-              value={teamName}
-              maxLength={22}
-              placeholder="ex.: Leões FC"
-              onChange={(e) => setTeamName(e.target.value)}
+              type="email"
+              value={email}
+              placeholder="ex.: voce@email.com"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="email"
+              spellCheck={false}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendReset()}
+              disabled={isLocal || busy}
+            />
+
+            <button
+              className="btn btn-primary btn-block btn-xl auth-submit"
+              onClick={sendReset}
+              disabled={!validEmail(email) || busy || isLocal}
+            >
+              {busy ? "Enviando…" : "Enviar link de recuperação"} <span className="arr">→</span>
+            </button>
+
+            {error && <div className="form-error">{error}</div>}
+            {notice && <div className="form-notice">{notice}</div>}
+
+            <button className="auth-link" onClick={() => go("login")} disabled={busy}>
+              ← Voltar para o login
+            </button>
+          </>
+        ) : (
+          /* ----- Login / Cadastro ----- */
+          <>
+            <div className="auth-tabs">
+              <button
+                className={"auth-tab" + (!isSignup ? " is-active" : "")}
+                onClick={() => go("login")}
+              >
+                Entrar
+              </button>
+              <button
+                className={"auth-tab" + (isSignup ? " is-active" : "")}
+                onClick={() => go("signup")}
+              >
+                Criar conta
+              </button>
+            </div>
+
+            <label className="auth-label">E-mail</label>
+            <input
+              className="home-name-input"
+              type="email"
+              value={email}
+              placeholder="ex.: voce@email.com"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="email"
+              spellCheck={false}
+              onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submit()}
               disabled={isLocal || busy}
             />
+
+            <label className="auth-label">Senha</label>
+            <input
+              className="home-name-input"
+              type="password"
+              value={password}
+              maxLength={64}
+              placeholder="mínimo 6 caracteres"
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              disabled={isLocal || busy}
+            />
+
+            {isSignup && (
+              <>
+                <label className="auth-label">Nome do seu time</label>
+                <input
+                  className="home-name-input"
+                  value={teamName}
+                  maxLength={22}
+                  placeholder="ex.: Leões FC"
+                  onChange={(e) => setTeamName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && submit()}
+                  disabled={isLocal || busy}
+                />
+              </>
+            )}
+
+            <button
+              className="btn btn-primary btn-block btn-xl auth-submit"
+              onClick={submit}
+              disabled={!canSubmit || busy || isLocal}
+            >
+              {busy ? "Aguarde…" : isSignup ? "Criar conta" : "Entrar"} <span className="arr">→</span>
+            </button>
+
+            {!isSignup && !isLocal && (
+              <button className="auth-link" onClick={() => go("forgot")} disabled={busy}>
+                Esqueci minha senha
+              </button>
+            )}
+
+            {error && <div className="form-error">{error}</div>}
+            {notice && <div className="form-notice">{notice}</div>}
           </>
         )}
 
-        <button
-          className="btn btn-primary btn-block btn-xl auth-submit"
-          onClick={submit}
-          disabled={!canSubmit || busy || isLocal}
-        >
-          {busy ? "Aguarde…" : isSignup ? "Criar conta" : "Entrar"} <span className="arr">→</span>
-        </button>
-
-        {error && <div className="form-error">{error}</div>}
-
-        {onGuest && (
+        {onGuest && !isForgot && (
           <>
             <div className="home-or"><span /> ou <span /></div>
             <button className="btn btn-ghost btn-block" onClick={onGuest} disabled={busy}>
