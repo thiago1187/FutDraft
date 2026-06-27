@@ -3,12 +3,19 @@ import { topScorers, allMatches, finalStandings, leagueTable } from "../engine/t
 import { buildTeam } from "../engine/team.js";
 import { findFormation } from "../engine/formations.js";
 import { playerFitsSlot } from "../engine/draft7a0.js";
-import { POS_COLOR } from "../engine/players.js";
 import { Avatar, Flag } from "./bits.jsx";
 
 function lastName(name = "") {
   const p = name.split(" ");
   return p.length > 1 ? p[p.length - 1] : p[0];
+}
+
+// Cor do quadradinho de fase na Classificação (campeão/vice/semi/restante).
+function phaseDotColor(pos) {
+  if (pos === 1) return "#C9A23A";
+  if (pos === 2) return "#9097A1";
+  if (pos === 3 || pos === 4) return "#CE9A66";
+  return "#9C9580";
 }
 
 // Melhor XI do campeonato: por nota (overall), o melhor jogador de cada posição
@@ -37,28 +44,24 @@ function bestEleven(pool, formation) {
   });
 }
 
-// Mini-campo com a Seleção do campeonato (bandeira + nota por jogador).
+// Campo (largura total) com a Seleção do campeonato (bandeira + nota por jogador).
 function BestXIPitch({ xi }) {
   return (
     <div className="champ-pitch">
       <div className="champ-pitch-grass" />
-      <svg className="champ-pitch-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-        <g fill="none" stroke="rgba(255,255,255,.28)" strokeWidth="0.5">
-          <line x1="2" y1="50" x2="98" y2="50" />
-          <circle cx="50" cy="50" r="11" />
-          <rect x="32" y="2" width="36" height="12" />
-          <rect x="32" y="86" width="36" height="12" />
-        </g>
-      </svg>
+      <div className="champ-pitch-mid" />
+      <div className="champ-pitch-circle" />
+      <div className="champ-pitch-box top" />
+      <div className="champ-pitch-box bottom" />
       {xi.map(({ slot, player }, i) => (
         <div key={i} className="champ-pl" style={{ left: `${slot.x}%`, bottom: `${slot.y}%` }}>
-          <span className="champ-pl-disc" style={{ borderColor: POS_COLOR[player?.pos] || "#999" }}>
+          <span className="champ-pl-disc">
             {player ? (
               <Flag iso2={player.iso2} src={player.flagSrc} emoji={player.flag} round className="champ-pl-flag" />
             ) : (
               <span className="champ-pl-role">{slot.role}</span>
             )}
-            {player && <span className="champ-pl-ovr">{player.ovr}</span>}
+            {player && <span className="champ-pl-nota">{player.ovr}</span>}
           </span>
           <span className="champ-pl-name">{player ? lastName(player.name) : ""}</span>
         </div>
@@ -192,26 +195,22 @@ function PodiumFigure({ color, variant }) {
   );
 }
 
-function PodiumPlace({ place, player, label, rec }) {
+function PodiumPlace({ place, player, label }) {
   if (!player) return <div className={`podium-col p${place} empty`} />;
   const step = place === 1 ? "gold" : place === 2 ? "silver" : "bronze";
   const variant = place === 1 ? "champ" : place === 2 ? "silver" : "bronze";
   return (
     <div className={`podium-col p${place}`}>
-      <div className="pc-head">
-        <div className={`pc-label ${step}`}>{label}</div>
-        <div className="pc-team">
-          <Avatar emoji={player.emoji} color={player.color} size={place === 1 ? 28 : 23} />
-          <span className="pc-name">{player.teamName}</span>
-        </div>
-        <div className="pc-mgr">Téc. {player.name}</div>
-        {place === 1 && rec && (
-          <div className="pc-chips">
-            <div className="pc-chip"><span>Final</span><b>{rec.W}V {rec.D}E {rec.L}D</b></div>
-            <div className="pc-chip"><span>Aproveitamento</span><b>{rec.apr}%</b></div>
+      {place !== 1 && (
+        <div className="pc-head">
+          <div className={`pc-label ${step}`}>{label}</div>
+          <div className="pc-team">
+            <Avatar emoji={player.emoji} color={player.color} size={23} />
+            <span className="pc-name">{player.teamName}</span>
           </div>
-        )}
-      </div>
+          <div className="pc-mgr">Téc. {player.name}</div>
+        </div>
+      )}
       <div className="pc-figure"><PodiumFigure color={player.color || "#888"} variant={variant} /></div>
       <div className={`pc-step ${step}`}><span className="pc-stepnum">{place}</span><span className="pc-shine" /></div>
     </div>
@@ -223,6 +222,7 @@ function Podium({ standings, players, rec, isLeague }) {
     const row = standings.find((s) => s.pos === pos);
     return row ? players.find((p) => p.id === row.id) : null;
   };
+  const champ = get(1);
   const third = get(3);
   return (
     <div className="podium-hero">
@@ -232,9 +232,27 @@ function Podium({ standings, players, rec, isLeague }) {
         <span className="ph-brand">Fim da Copa</span>
         <span className="ph-season">Copa dos Amigos</span>
       </div>
+
+      {champ && (
+        <div className="ph-champion">
+          <div className="ph-champ-label">Campeão</div>
+          <div className="ph-champ-team">
+            <Avatar emoji={champ.emoji} color={champ.color} size={28} />
+            <span className="ph-champ-name">{champ.teamName}</span>
+          </div>
+          <div className="ph-champ-mgr">Téc. {champ.name}</div>
+          {rec && (
+            <div className="ph-champ-chips">
+              <div className="pc-chip"><span>Campanha</span><b>{rec.W}V {rec.D}E {rec.L}D</b></div>
+              <div className="pc-chip"><span>Aproveitamento</span><b>{rec.apr}%</b></div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="podium">
         <PodiumPlace place={2} player={get(2)} label="Vice-campeão" />
-        <PodiumPlace place={1} player={get(1)} label="Campeão" rec={rec} />
+        <PodiumPlace place={1} player={champ} label="Campeão" />
         <PodiumPlace place={3} player={third} label={isLeague ? "3º lugar" : "Semifinalista"} />
       </div>
     </div>
@@ -249,7 +267,6 @@ export default function Champion({ state, isHost, actions }) {
   const topTeam = top && players.find((p) => p.id === top.teamId);
   const rec = champRecord(t, t.champion);
   const isLeague = t.format === "league" || (t.fixtures && !t.rounds);
-  const fmtTag = isLeague ? "pontos corridos" : t.format === "cup" ? "copa" : "mata-mata";
   const standings = finalStandings(t, players);
 
   // Seleção do campeonato: melhor XI por nota entre os titulares de TODOS os times.
@@ -282,11 +299,11 @@ export default function Champion({ state, isHost, actions }) {
       <Podium standings={standings} players={players} rec={rec} isLeague={isLeague} />
 
       <div className={`tchamp-grid ${reveal ? "in" : ""}`}>
-        {/* esquerda — classificação final */}
+        {/* esquerda — classificação */}
         <div className="tchamp-col">
           <div className="tchamp-sechead">
-            <h2 className="tchamp-h2">Classificação Final</h2>
-            <span className="tchamp-tag">{fmtTag}</span>
+            <h2 className="tchamp-h2">Classificação</h2>
+            <span className="tchamp-tag">final</span>
           </div>
           <div className="cstand">
             {standings.map((row) => {
@@ -296,18 +313,26 @@ export default function Champion({ state, isHost, actions }) {
               return (
                 <div className={`cstand-row ${isChamp ? "champ" : isVice ? "vice" : ""}`} key={row.id}>
                   <span className="cstand-pos">{row.pos}º</span>
-                  <Avatar emoji={p?.emoji} color={p?.color} size={24} />
+                  <Avatar emoji={p?.emoji} color={p?.color} size={22} />
                   <span className="cstand-name">{p?.teamName || "—"}</span>
-                  <span className="cstand-phase">{row.detail}</span>
+                  <span className="cstand-dot" style={{ background: phaseDotColor(row.pos) }} title={row.detail} />
                 </div>
               );
             })}
+            <div className="cstand-legend">
+              <span><i style={{ background: "#C9A23A" }} />Campeão</span>
+              <span><i style={{ background: "#9097A1" }} />Final</span>
+              <span><i style={{ background: "#CE9A66" }} />Semi</span>
+            </div>
           </div>
         </div>
 
-        {/* direita — artilheiro + goleadores + seleção */}
+        {/* direita — artilharia */}
         <div className="tchamp-col">
-          {top && (
+          <div className="tchamp-sechead">
+            <h2 className="tchamp-h2">Artilharia</h2>
+          </div>
+          {top ? (
             <div className="topscorer">
               <span className="topscorer-badge">⚽</span>
               <div className="topscorer-info">
@@ -317,43 +342,43 @@ export default function Champion({ state, isHost, actions }) {
               </div>
               <div className="topscorer-num"><b>{top.goals}</b><span>gols</span></div>
             </div>
+          ) : (
+            <div className="cstand cstand-empty">Sem gols na competição.</div>
           )}
 
           {scorers.length > 1 && (
-            <>
-              <div className="goleadores-label">Demais goleadores</div>
-              <div className="goleadores">
-                {scorers.slice(1, 5).map((s, i) => {
-                  const tm = players.find((p) => p.id === s.teamId);
-                  return (
-                    <div className="goleador-row" key={s.id}>
-                      <span className="goleador-rank">{i + 2}</span>
-                      <span className="goleador-name">{s.name}</span>
-                      <span className="goleador-team">{tm?.teamName}</span>
-                      <span className="goleador-goals">{s.goals}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          {bestXI && (
-            <>
-              <div className="tchamp-sechead spaced">
-                <h2 className="tchamp-h2">Seleção do Campeonato</h2>
-                <span className="tchamp-tag">por nota</span>
-                {bestXIOvr != null && (
-                  <span className="champ-xi-ovr" title="Média de nota da seleção">
-                    <b>{bestXIOvr}</b><small>OVR</small>
-                  </span>
-                )}
-              </div>
-              <BestXIPitch xi={bestXI} />
-            </>
+            <div className="goleadores">
+              {scorers.slice(1, 5).map((s, i) => {
+                const tm = players.find((p) => p.id === s.teamId);
+                return (
+                  <div className="goleador-row" key={s.id}>
+                    <span className="goleador-rank">{i + 2}</span>
+                    <span className="goleador-name">{s.name}</span>
+                    <span className="goleador-team">{tm?.teamName}</span>
+                    <span className="goleador-goals">{s.goals}</span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
+
+      {/* seleção do campeonato — largura total */}
+      {bestXI && (
+        <div className={`tchamp-xi ${reveal ? "in" : ""}`}>
+          <div className="tchamp-sechead">
+            <h2 className="tchamp-h2">Seleção do Campeonato</h2>
+            <span className="tchamp-tag">por nota</span>
+            {bestXIOvr != null && (
+              <span className="champ-xi-ovr" title="Média de nota da seleção">
+                <b>{bestXIOvr}</b><small>OVR</small>
+              </span>
+            )}
+          </div>
+          <BestXIPitch xi={bestXI} />
+        </div>
+      )}
 
       <div className="tchamp-actions">
         {isHost ? (

@@ -2096,8 +2096,17 @@ body {
 @keyframes trophyFloat { 0%,100% { transform: translateY(0) rotate(-2.5deg); } 50% { transform: translateY(-10px) rotate(2.5deg); } }
 @keyframes champGlow { 0%,100% { opacity: .5; } 50% { opacity: .85; } }
 @keyframes podShine { 0% { transform: translateX(-130%) skewX(-18deg); } 55%,100% { transform: translateX(260%) skewX(-18deg); } }
+@keyframes podPopUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 
 .screen.tchamp { max-width: 1040px; text-align: left; }
+
+/* bloco do campeão (centralizado, acima do pódio) */
+.ph-champion { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; margin-top: 10px; animation: podPopUp .6s ease-out .9s both; }
+.ph-champ-label { font-family: var(--head); font-weight: 700; font-size: 11px; letter-spacing: 3.5px; text-transform: uppercase; color: #E9C75A; }
+.ph-champ-team { display: flex; align-items: center; gap: 9px; margin-top: 5px; }
+.ph-champ-name { font-family: var(--display); font-size: 28px; color: #fff; letter-spacing: .5px; }
+.ph-champ-mgr { font-family: var(--head); font-size: 10.5px; letter-spacing: .8px; color: #A89C80; margin-top: 3px; }
+.ph-champ-chips { display: flex; gap: 8px; margin-top: 11px; }
 
 .podium-hero { position: relative; overflow: hidden; border-radius: 20px; border: 1px solid rgba(201,162,58,.35); background: radial-gradient(125% 95% at 50% -8%, #322A18 0%, #1B180F 52%, #131009 100%); padding: 24px 40px 0; box-shadow: 0 18px 44px rgba(19,16,9,.28); }
 .podium-hero .confetti { position: absolute; inset: 0; overflow: hidden; }
@@ -2159,7 +2168,11 @@ body {
 .cstand-row.champ .cstand-pos { color: var(--gold-deep); }
 .cstand-name { flex: 1 1 auto; min-width: 0; font-family: "Archivo", sans-serif; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font-weight: 500; }
 .cstand-row.champ .cstand-name, .cstand-row.vice .cstand-name { font-weight: 700; }
-.cstand-phase { font-family: var(--head); font-size: 10px; letter-spacing: .6px; color: #9c9580; flex: 0 0 auto; }
+.cstand-dot { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.cstand-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 9px 14px; background: #f6f0df; }
+.cstand-legend span { display: inline-flex; align-items: center; gap: 5px; font-family: var(--head); font-size: 8.5px; letter-spacing: .8px; text-transform: uppercase; color: #7a745f; }
+.cstand-legend i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+.cstand-empty { padding: 14px; font-family: var(--body); font-size: 13px; color: var(--muted); }
 
 .tchamp-actions { display: flex; gap: 12px; margin-top: 30px; }
 .tchamp-again { flex: 1 1 auto; background: #DC4E22; color: #fff; border: none; border-radius: 12px; padding: 17px; font-family: var(--display); font-size: 17px; letter-spacing: 1.5px; text-transform: uppercase; box-shadow: 0 6px 16px rgba(220,78,34,.32); cursor: pointer; }
@@ -2199,23 +2212,24 @@ body {
 .champ-stat-v { font-family: var(--display); font-size: 22px; color: var(--gold); }
 
 .champ-right { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.topscorer { display: flex; align-items: center; gap: 14px; background: var(--paper); border: 1.5px solid var(--line); border-radius: 14px; padding: 16px 18px; }
-.topscorer-badge { width: 50px; height: 50px; border-radius: 50%; background: var(--cream); border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+.topscorer { display: flex; align-items: center; gap: 11px; background: linear-gradient(120deg, #1F1B12, #15110A); border: 1px solid rgba(201,162,58,.3); border-radius: 13px; padding: 12px 14px; }
+.topscorer-badge { width: 38px; height: 38px; border-radius: 50%; background: rgba(233,199,90,.14); border: 1px solid rgba(233,199,90,.3); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
 .topscorer-info { flex: 1; min-width: 0; }
-.topscorer-k { font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
-.topscorer-name { font-family: var(--display); font-size: 24px; text-transform: uppercase; color: var(--ink); line-height: 1; margin: 2px 0; }
-.topscorer-team { font-family: var(--body); font-size: 12px; color: var(--muted2); }
-.topscorer-num { text-align: center; flex-shrink: 0; }
-.topscorer-num b { font-family: var(--display); font-size: 38px; color: var(--red); line-height: 0.9; }
-.topscorer-num span { display: block; font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.topscorer-k { font-family: var(--head); font-weight: 600; font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: #B0884A; }
+.topscorer-name { font-family: var(--display); font-size: 20px; color: #F7F2E4; line-height: 1.05; margin: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topscorer-team { font-family: var(--head); font-size: 9.5px; letter-spacing: .04em; color: #8C846E; }
+.topscorer-num { text-align: right; flex-shrink: 0; }
+.topscorer-num b { font-family: var(--display); font-size: 30px; color: var(--gold); line-height: 1; }
+.topscorer-num span { display: block; font-family: var(--head); font-weight: 600; font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; color: #8C846E; }
 
 .goleadores-label { font-family: var(--head); font-weight: 600; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); margin: 8px 0 2px; }
-.goleadores { display: flex; flex-direction: column; gap: 7px; }
-.goleador-row { display: flex; align-items: center; gap: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
-.goleador-rank { font-family: var(--display); font-size: 16px; color: var(--gold); width: 16px; text-align: center; }
-.goleador-name { font-family: var(--head); font-weight: 700; font-size: 14px; color: var(--ink); }
-.goleador-team { flex: 1; font-family: var(--body); font-size: 12px; color: var(--muted2); }
-.goleador-goals { font-family: var(--display); font-size: 20px; color: var(--ink); }
+.goleadores { background: var(--paper); border: 1px solid #e0d6bc; border-radius: 13px; overflow: hidden; }
+.goleador-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #efe8d5; }
+.goleador-row:last-child { border-bottom: none; }
+.goleador-rank { font-family: var(--head); font-weight: 600; font-size: 11px; color: #B0884A; width: 14px; flex: 0 0 auto; }
+.goleador-name { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 13px; color: var(--ink); flex: 0 0 auto; white-space: nowrap; }
+.goleador-team { flex: 1; min-width: 0; font-family: var(--head); font-size: 10px; letter-spacing: .04em; color: #9c9580; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goleador-goals { font-family: var(--display); font-size: 16px; color: var(--ink); flex: 0 0 auto; }
 
 .champ-actions { display: flex; gap: 12px; margin-top: 16px; }
 .champ-actions .btn-primary { flex: 1; }
@@ -2239,16 +2253,23 @@ body {
 .champ-table { width: 100%; }
 .champ-table .table-row.leader .tr-name { color: var(--ink); }
 
-/* mini-campo: seleção do campeonato */
-.champ-pitch { position: relative; width: 100%; max-width: 320px; aspect-ratio: 3 / 4; margin: 0; border-radius: 12px; overflow: hidden; background: var(--green-deep, #225c3b); box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
-.champ-pitch-grass { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 12.5%, transparent 12.5% 25%); }
-.champ-pitch-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
-.champ-pl { position: absolute; transform: translate(-50%, 50%); display: flex; flex-direction: column; align-items: center; gap: 2px; width: 58px; }
-.champ-pl-disc { position: relative; width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid #fff; background: var(--ink); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,.4); }
-.champ-pl-flag.round { width: 100%; height: 100%; }
-.champ-pl-role { font-family: var(--head); font-weight: 700; font-size: 9px; color: rgba(255,255,255,.85); }
-.champ-pl-ovr { position: absolute; bottom: -5px; right: -7px; background: var(--ink); color: var(--gold); font-family: var(--display); font-size: 10px; line-height: 1; padding: 1px 3px; border-radius: 4px; border: 1px solid var(--gold); }
-.champ-pl-name { font-family: var(--head); font-weight: 600; font-size: 9px; color: #fff; background: rgba(0,0,0,.6); border-radius: 3px; padding: 1px 4px; max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* seleção do campeonato — largura total */
+.tchamp-xi { margin-top: 26px; opacity: 0; transform: translateY(10px); transition: opacity .5s ease .25s, transform .5s ease .25s; }
+.tchamp-xi.in { opacity: 1; transform: none; }
+.tchamp-xi .tchamp-sechead { margin-bottom: 10px; }
+.champ-pitch { position: relative; width: 100%; height: 380px; border-radius: 14px; overflow: hidden; border: 1px solid #2C5A36; background: #2E7E40; }
+.champ-pitch-grass { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, #2E7E40 0 36px, #2A7539 36px 72px); }
+.champ-pitch-mid { position: absolute; left: 8%; right: 8%; top: 50%; height: 1px; background: rgba(255,255,255,.22); }
+.champ-pitch-circle { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; transform: translate(-50%,-50%); }
+.champ-pitch-box { position: absolute; left: 50%; width: 132px; height: 46px; border: 1px solid rgba(255,255,255,.2); transform: translateX(-50%); }
+.champ-pitch-box.top { top: 0; border-top: none; border-radius: 0 0 6px 6px; }
+.champ-pitch-box.bottom { bottom: 0; border-bottom: none; border-radius: 6px 6px 0 0; }
+.champ-pl { position: absolute; transform: translate(-50%, 50%); display: flex; flex-direction: column; align-items: center; gap: 3px; width: 60px; z-index: 2; }
+.champ-pl-disc { position: relative; width: 32px; height: 32px; border-radius: 50%; border: 2px solid #17150F; background: #fff; display: flex; align-items: center; justify-content: center; }
+.champ-pl-flag.round { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.champ-pl-role { font-family: var(--head); font-weight: 700; font-size: 9px; color: #17150F; }
+.champ-pl-nota { position: absolute; top: -7px; right: -9px; min-width: 18px; height: 16px; padding: 0 3px; border-radius: 8px; background: #C9A23A; border: 1.5px solid #17150F; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-size: 9px; color: #17150F; }
+.champ-pl-name { font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: .3px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.7); white-space: nowrap; }
 
 .champ-actions-bottom { margin-top: 22px; max-width: 560px; }
 
@@ -2263,7 +2284,7 @@ body {
   .champ-actions .btn-leave { min-width: 0; }
   .champ-bottom { flex-direction: column; }
   .champ-bestxi { width: 100%; }
-  .champ-pitch { max-width: 280px; margin: 0 auto; }
+  .champ-pitch { height: 340px; }
 }
 
 /* ===========================================================
