@@ -78,6 +78,8 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
         <MatchLive
           key={m.id}
           match={{ id: m.id, knockout: knockoutNow, seed: state.presenting.seed }}
+          restore={state.presenting.live}
+          onPersist={actions.persistLive}
           home={buildTeam(state, m.homeId)}
           away={buildTeam(state, m.awayId)}
           homeMgr={players.find((p) => p.id === m.homeId)}

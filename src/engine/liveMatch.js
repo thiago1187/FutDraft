@@ -8,7 +8,7 @@
 
 import { teamRatings } from "./match.js";
 import { computeLambdas, effOvr } from "./rates.js";
-import { mulberry32, randomSeed, gaussian } from "./rng.js";
+import { randomSeed, gaussian } from "./rng.js";
 
 const MATCH_MS_1X = 110000; // 90' em ~110s a 1× (~1,2s por minuto) — dá pra acompanhar
 const HALF = 45;
@@ -57,9 +57,16 @@ export function createLiveMatch(home, away, opts = {}) {
   const ra = teamRatings(away.squad);
 
   // PRNG semeável: toda aleatoriedade da partida sai daqui (determinístico pela seed).
-  // A seed é persistida em `state.seed` para reproduzir a partida (replay/multiplayer).
+  // Inline (não mulberry32 importado) para o CONTADOR ser legível/restaurável — assim a
+  // partida pode ser REIDRATADA exatamente de onde parou (T7), não só recomeçada da seed.
   const seed = (opts.seed ?? randomSeed()) >>> 0;
-  const rng = mulberry32(seed);
+  let rngA = seed >>> 0;
+  const rng = () => {
+    rngA = (rngA + 0x6d2b79f5) | 0;
+    let t = Math.imul(rngA ^ (rngA >>> 15), 1 | rngA);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   const rnd = (a = 1) => rng() * a;
   const randn = () => gaussian(rng);
 
@@ -105,6 +112,20 @@ export function createLiveMatch(home, away, opts = {}) {
   let cineId = 0;
   let penSeq = 0; // id monotônico de cada pênalti em jogo (não reusa após resolver)
   let halftimeHeld = false;
+
+  // REIDRATAÇÃO (T7): retoma a partida de um estado salvo (eng.serialize()) — placar,
+  // minuto, posições, táticas, cartões, contador do PRNG e relógio — em vez de recomeçar
+  // do minuto 0. É o que permite migrar o anfitrião sem perder a partida.
+  if (opts.restore) {
+    const r = opts.restore;
+    if (r.state) Object.assign(state, r.state);
+    if (r.rngState != null) rngA = r.rngState >>> 0;
+    if (r.elapsed != null) elapsed = r.elapsed;
+    if (r.simAccum != null) simAccum = r.simAccum;
+    if (r.cineId != null) cineId = r.cineId;
+    if (r.penSeq != null) penSeq = r.penSeq;
+    if (r.halftimeHeld != null) halftimeHeld = r.halftimeHeld;
+  }
 
   // ---------- helpers de domínio ----------
   const other = (s) => (s === "home" ? "away" : "home");
@@ -791,5 +812,14 @@ export function createLiveMatch(home, away, opts = {}) {
     step,
     result,
     resolvePenalty,
+    // Estado completo para PERSISTIR e reidratar (T7): seed + contador do PRNG + relógio
+    // + todo o `state`. Reabrir com createLiveMatch(home, away, { restore }) continua
+    // a partida exatamente de onde parou.
+    serialize() {
+      return {
+        seed, rngState: rngA >>> 0, elapsed, simAccum, cineId, penSeq, halftimeHeld,
+        state: JSON.parse(JSON.stringify(state)),
+      };
+    },
   };
 }

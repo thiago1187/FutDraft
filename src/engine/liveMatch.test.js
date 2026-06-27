@@ -55,6 +55,47 @@ describe("createLiveMatch — determinismo pela seed", () => {
   });
 });
 
+describe("reidratação (T7) — serialize/restore continua a partida", () => {
+  function resolveIfPen(e) {
+    if (e.state.penaltyPending && !e.state.penaltyPending.animating) e.resolvePenalty(true, "meio", "cantoE");
+    if (e.state.phase === "INT") { e.setReady("home"); e.setReady("away"); }
+  }
+
+  it("restore a partir do meio reproduz EXATAMENTE o resto da partida", () => {
+    const home = team(80), away = team(80); // mesmos elencos nos dois motores
+    const orig = createLiveMatch(home, away, { seed: 4242, cpu: { home: true, away: true } });
+    orig.beginMatch();
+    // roda até ~45' e tira o snapshot no meio
+    let g = 0;
+    while (orig.state.minute < 45 && !orig.isOver() && g < 20000) { resolveIfPen(orig); orig.step(60, 6); g++; }
+    const snap = orig.serialize();
+    expect(snap.state.minute).toBeGreaterThanOrEqual(40);
+
+    // novo motor reidratado do snapshot (como faria o novo anfitrião)
+    const rehy = createLiveMatch(home, away, { restore: snap });
+    expect(rehy.state.score).toEqual(orig.state.score);
+    expect(rehy.state.minute).toBe(orig.state.minute);
+
+    // segue os dois em lockstep até o fim → resultado idêntico (mesma seed + estado)
+    while (!orig.isOver() && g < 40000) { resolveIfPen(orig); resolveIfPen(rehy); orig.step(60, 6); rehy.step(60, 6); g++; }
+    expect(rehy.state.score).toEqual(orig.state.score);
+    expect(rehy.state.stats.shots).toEqual(orig.state.stats.shots);
+    expect(rehy.state.cards).toEqual(orig.state.cards);
+    expect(rehy.result().homeGoals).toBe(orig.result().homeGoals);
+    expect(rehy.result().awayGoals).toBe(orig.result().awayGoals);
+  });
+
+  it("serialize captura seed e contador do PRNG", () => {
+    const e = createLiveMatch(team(80), team(80), { seed: 99, cpu: { home: true, away: true } });
+    e.beginMatch();
+    for (let i = 0; i < 200; i++) e.step(60, 6);
+    const s = e.serialize();
+    expect(s.seed).toBe(99);
+    expect(typeof s.rngState).toBe("number");
+    expect(s.state.minute).toBe(e.state.minute);
+  });
+});
+
 describe("penaltyScored — conversão ~67%", () => {
   const DIRS = ["cantoE", "meio", "cantoD"];
   it("com escolhas aleatórias (goleiro acerta ~1/3) converte ~67%", () => {

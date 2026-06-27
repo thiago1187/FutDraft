@@ -512,6 +512,15 @@ export default function App() {
       const seed = randomSeed();
       applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now(), seed } }));
     },
+    // T7: o anfitrião persiste o estado vivo (eng.serialize()) na sala a cada ~3s. Se ele
+    // cair, o novo anfitrião reidrata a partida daqui (não recomeça do minuto 0).
+    persistLive(serialized) {
+      const r = roomRef.current;
+      if (!r || r.isLocal) return;
+      const st = r.getState();
+      if (st?.hostId !== myId || st?.presenting?.mode !== "live") return; // só o host, em partida ao vivo
+      r.setEngine({ presenting: { ...st.presenting, live: serialized } });
+    },
     finishLiveMatch(matchId, result) {
       applyEngine((prev) => {
         if (!prev.tournament) return prev;
@@ -696,6 +705,23 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate?.draft, gstate?.draftToken, gstate?.hostId, auth, room, myId]);
+
+  // T7: migração automática de anfitrião. Se o host sai (não está na presença) e a sala
+  // segue ativa, o SUCESSOR (membro humano online de menor id — eleição determinística,
+  // só um assume) toma o comando após 4s. A partida ao vivo reidrata do estado salvo.
+  useEffect(() => {
+    if (!hasSupabase || !room || room.isLocal || !gstate) return;
+    const off = online.length > 0 && !online.includes(gstate.hostId);
+    if (!off || gstate.hostId === myId) return;
+    const successor = (gstate.players || [])
+      .filter((p) => !p.isBot && p.id !== gstate.hostId && online.includes(p.id))
+      .map((p) => p.id).sort()[0];
+    if (successor !== myId) return; // não sou o sucessor
+    const t = setTimeout(() => {
+      if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [online, gstate, myId, room]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
