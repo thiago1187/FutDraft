@@ -2,7 +2,7 @@
 // confronto direto (RPC head_to_head). Tudo no Supabase, protegido por RLS.
 import { supabase, hasSupabase } from "./supabase.js";
 
-const PROFILE_COLS = "id, username, display_name, team_name, emoji, color";
+const PROFILE_COLS = "id, username, display_name, team_name, emoji, color, current_room, last_seen";
 
 // Estatísticas do jogador (jogos, V/E/D, gols, títulos). A view sempre devolve uma
 // linha por profile (LEFT JOIN), então zera sozinha para quem nunca jogou.
@@ -42,15 +42,59 @@ export async function listFriendships(myId) {
     )
     .or(`requester_id.eq.${myId},addressee_id.eq.${myId}`);
   if (error) throw error;
-  const friends = [], incoming = [], outgoing = [];
+  const friends = [], incoming = [], outgoing = [], blocked = [];
   for (const f of data || []) {
     const iAmRequester = f.requester_id === myId;
     const other = iAmRequester ? f.addressee : f.requester;
     const row = { friendshipId: f.id, status: f.status, profile: other };
     if (f.status === "accepted") friends.push(row);
     else if (f.status === "pending") (iAmRequester ? outgoing : incoming).push(row);
+    else if (f.status === "blocked") blocked.push(row);
   }
-  return { friends, incoming, outgoing };
+  return { friends, incoming, outgoing, blocked };
+}
+
+// ---------- Perfil personalizável + bloqueio (Bloco E) ----------
+// Bio + seleção favorita. Leitura pública (perfil de qualquer um); escrita só do dono (RLS).
+export async function getProfileExtras(userId) {
+  if (!hasSupabase || !userId) return { bio: "", favorite_squad: null };
+  const { data, error } = await supabase.from("profiles").select("bio, favorite_squad").eq("id", userId).maybeSingle();
+  if (error) throw error;
+  return data || { bio: "", favorite_squad: null };
+}
+
+export async function updateMyExtras(userId, patch) {
+  if (!hasSupabase || !userId) return;
+  const clean = {};
+  if (patch.bio !== undefined) clean.bio = patch.bio;
+  if (patch.favorite_squad !== undefined) clean.favorite_squad = patch.favorite_squad;
+  if (!Object.keys(clean).length) return;
+  const { error } = await supabase.from("profiles").update(clean).eq("id", userId);
+  if (error) throw error;
+}
+
+// Bloquear: some da lista de amigos e deixa de receber convites desse amigo (filtro no
+// listIncomingInvites). Desbloquear devolve para 'accepted'.
+export async function blockFriend(friendshipId) {
+  if (!hasSupabase) return;
+  const { error } = await supabase.from("friendships").update({ status: "blocked", updated_at: new Date().toISOString() }).eq("id", friendshipId);
+  if (error) throw error;
+}
+
+export async function unblockFriend(friendshipId) {
+  if (!hasSupabase) return;
+  const { error } = await supabase.from("friendships").update({ status: "accepted", updated_at: new Date().toISOString() }).eq("id", friendshipId);
+  if (error) throw error;
+}
+
+// IDs dos usuários com quem tenho um vínculo 'blocked' (qualquer dos dois lados).
+export async function listBlockedIds(myId) {
+  if (!hasSupabase || !myId) return [];
+  const { data, error } = await supabase
+    .from("friendships").select("requester_id, addressee_id")
+    .eq("status", "blocked").or(`requester_id.eq.${myId},addressee_id.eq.${myId}`);
+  if (error) throw error;
+  return (data || []).map((r) => (r.requester_id === myId ? r.addressee_id : r.requester_id));
 }
 
 // Envia pedido de amizade (RLS exige requester_id = auth.uid()).
@@ -84,6 +128,67 @@ export async function removeFriendship(friendshipId) {
   if (error) throw error;
 }
 
+// ---------- Presença (Bloco A) ----------
+// Janela para considerar um amigo "online" a partir do último heartbeat.
+export const ONLINE_WINDOW_MS = 60_000;
+
+// "Visto agora" — derivamos online de last_seen recente (< ONLINE_WINDOW_MS).
+export function isOnline(lastSeen) {
+  if (!lastSeen) return false;
+  return Date.now() - new Date(lastSeen).getTime() < ONLINE_WINDOW_MS;
+}
+
+// Heartbeat leve: marca o usuário como visto agora (chamado periodicamente pelo app).
+export async function touchPresence(userId) {
+  if (!hasSupabase || !userId) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ last_seen: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+// Define (código) ou limpa (null) a sala atual do usuário. Também renova last_seen, já
+// que entrar/sair de sala é sinal de atividade. Base de "em sala" e "entrar na sala do amigo".
+export async function setCurrentRoom(userId, roomCode) {
+  if (!hasSupabase || !userId) return;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ current_room: roomCode || null, last_seen: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
+// Limite de técnicos por sala (mesmo teto do lobby/motor). Sala "cheia" não aceita entrada.
+const ROOM_CAP = 16;
+
+// Estado de "entrável" das salas de um conjunto de códigos (para "entrar na sala do amigo").
+// Uma sala aceita entrada quando está no lobby e não está cheia. Devolve mapa code -> info.
+export async function roomsJoinable(codes) {
+  if (!hasSupabase) return {};
+  const uniq = [...new Set((codes || []).filter(Boolean))];
+  if (!uniq.length) return {};
+  const { data: rooms, error } = await supabase
+    .from("rooms").select("id, phase, status").in("id", uniq);
+  if (error) throw error;
+  const { data: rps } = await supabase
+    .from("room_players").select("room_id").in("room_id", uniq);
+  const counts = {};
+  for (const r of rps || []) counts[r.room_id] = (counts[r.room_id] || 0) + 1;
+  const map = {};
+  for (const r of rooms || []) {
+    const inLobby = r.phase === "lobby";
+    const count = counts[r.id] || 0;
+    const full = count >= ROOM_CAP;
+    map[r.id] = {
+      phase: r.phase, status: r.status, count, exists: true,
+      joinable: inLobby && !full,
+      reason: !inLobby ? "Partida em andamento" : full ? "Sala cheia" : "",
+    };
+  }
+  return map;
+}
+
 // Confronto direto entre dois usuários (vitórias de cada, gols).
 export async function headToHead(userA, userB) {
   if (!hasSupabase) return null;
@@ -91,4 +196,29 @@ export async function headToHead(userA, userB) {
   if (error) throw error;
   // A função RETURNS TABLE → vem como array de uma linha.
   return Array.isArray(data) ? data[0] : data;
+}
+
+// ---------- Rivalidade (Bloco D) ----------
+// Últimos confrontos entre dois usuários (placar + data), do mais recente ao mais antigo.
+export async function recentMatches(userA, userB, limit = 6) {
+  if (!hasSupabase || !userA || !userB) return [];
+  const { data, error } = await supabase
+    .from("matches")
+    .select("id, home_user_id, away_user_id, home_score, away_score, home_pens, away_pens, winner_user_id, played_at, round")
+    .or(`and(home_user_id.eq.${userA},away_user_id.eq.${userB}),and(home_user_id.eq.${userB},away_user_id.eq.${userA})`)
+    .order("played_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+// Estatísticas (profile_stats) de um conjunto de usuários — base do ranking entre amigos.
+export async function statsFor(userIds) {
+  if (!hasSupabase || !userIds?.length) return [];
+  const { data, error } = await supabase
+    .from("profile_stats")
+    .select("user_id, username, matches_played, wins, draws, losses, goals_for, goals_against, titles")
+    .in("user_id", userIds);
+  if (error) throw error;
+  return data || [];
 }

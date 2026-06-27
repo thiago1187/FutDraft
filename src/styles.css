@@ -2538,3 +2538,95 @@ body {
 .mlf-mark:disabled { opacity: .5; cursor: default; }
 .mlf-mark.sel { background: var(--red); border-color: var(--red); color: #fff; }
 .mlf-mark-ovr { font-size: 10px; opacity: .7; }
+
+/* ===================== feat/profile-social (perfil + social de amigos) ===================== */
+/* Bloco B — atalho de amigos no lobby (fab no canto, espelha o dev-fab do lado oposto) */
+.friends-fab {
+  position: fixed; left: 14px; bottom: 14px; z-index: 100;
+  font-family: var(--head); font-weight: 700; font-size: 12px; letter-spacing: 0.04em;
+  background: var(--ink); color: var(--gold);
+  border: 1.5px solid var(--gold); border-radius: 99px;
+  padding: 9px 14px; cursor: pointer; box-shadow: var(--shadow); opacity: 0.9;
+}
+.friends-fab:hover { opacity: 1; }
+
+/* Bloco B — presença + ações no card do amigo */
+.friend-pill { font-family: var(--head); font-weight: 700; font-size: 10px; letter-spacing: 0.03em; padding: 1px 7px; border-radius: 99px; vertical-align: middle; white-space: nowrap; }
+.friend-pill.on { color: #2e7d4f; background: rgba(63,156,99,0.16); }
+.friend-pill.in-room { color: #8a5a00; background: rgba(245,165,36,0.22); }
+.friend-pill.off { color: var(--muted, #8a8470); background: rgba(0,0,0,0.05); }
+.friend-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
+.friend-actions .btn-sm { flex: 0 0 auto; }
+
+/* Bloco C — convites recebidos */
+.profile-invites { margin: 10px 0 4px; }
+.invite-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--red); color: #fff; font-size: 12px; font-weight: 800; vertical-align: middle; }
+.invite-row { border: 1.5px dashed var(--gold); border-radius: 10px; }
+
+/* Bloco D — rivalidade (freguês, sequência, histórico, ranking) */
+.fregues-badge { font-family: var(--head); font-weight: 700; font-size: 12px; padding: 5px 9px; border-radius: 8px; margin-bottom: 6px; }
+.fregues-badge.lead { background: rgba(245,165,36,0.18); color: #8a5a00; border: 1px solid var(--gold); }
+.fregues-badge.lose { background: rgba(233,78,39,0.12); color: #a3331a; border: 1px solid rgba(233,78,39,0.4); }
+.fregues-badge.tie { background: rgba(0,0,0,0.05); color: var(--muted, #8a8470); }
+.fregues-streak { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+.fregues-streak.me { color: #2e7d4f; }
+.fregues-streak.them { color: #a3331a; }
+.h2h-history { margin-top: 8px; }
+.h2h-history-label { font-family: var(--head); font-weight: 700; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; margin-bottom: 4px; }
+.h2h-hrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.h2h-res { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 11px; color: #fff; }
+.h2h-res.V { background: #3f9c63; }
+.h2h-res.D { background: #e94e27; }
+.h2h-res.E { background: #9a9483; }
+.h2h-score { font-weight: 700; }
+.h2h-date { margin-left: auto; opacity: 0.6; font-size: 12px; }
+.profile-ranking { margin: 14px 0 4px; }
+.rank-table { display: flex; flex-direction: column; gap: 2px; }
+.rank-head, .rank-row { display: grid; grid-template-columns: 26px 1fr 32px 32px 32px 44px; align-items: center; gap: 4px; padding: 5px 8px; }
+.rank-head { font-family: var(--head); font-weight: 700; font-size: 11px; opacity: 0.65; }
+.rank-row { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+.rank-row.me { border-color: var(--gold); background: rgba(245,165,36,0.10); }
+.rank-pos { font-weight: 800; opacity: 0.7; text-align: center; }
+.rank-who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.rank-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank-num { text-align: center; font-weight: 700; font-size: 13px; }
+
+/* Bloco E — perfil personalizável (bio, seleção favorita, presets, gestão de amigo) */
+.profile-displayname { font-weight: 700; font-size: 15px; }
+.profile-fav { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin: 4px 0; }
+.profile-fav .flag-img { width: 20px; height: 14px; border-radius: 2px; }
+.profile-bio { font-size: 13px; opacity: 0.85; margin: 4px 0; font-style: italic; }
+.profile-bio-input { resize: vertical; min-height: 42px; font-family: inherit; }
+.squad-picker { margin-bottom: 6px; }
+.squad-picker-row { display: flex; gap: 6px; align-items: center; }
+.squad-options { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.squad-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: transparent; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; }
+.squad-opt:hover { background: rgba(0,0,0,0.05); }
+.squad-opt.is-on { background: rgba(245,165,36,0.18); font-weight: 700; }
+.squad-opt .flag-img { width: 22px; height: 15px; border-radius: 2px; }
+.friend-handle { font-size: 12px; opacity: 0.6; font-weight: 400; }
+.friend-pin { margin-right: 2px; }
+.friend-manage { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* presets de tática */
+.profile-tactics { margin: 14px 0 4px; }
+.tac-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.tac-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+.tac-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tac-name { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.tac-default { font-size: 10px; font-weight: 800; color: #8a5a00; background: rgba(245,165,36,0.22); border-radius: 99px; padding: 1px 7px; }
+.tac-sum { font-size: 11px; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tac-editor { display: flex; flex-direction: column; gap: 8px; border: 1px dashed var(--gold); border-radius: 10px; padding: 10px; }
+.tac-lever { display: flex; flex-direction: column; gap: 4px; }
+.tac-lever-label { font-family: var(--head); font-weight: 700; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.7; }
+.tac-lever-opts { display: flex; gap: 4px; flex-wrap: wrap; }
+.tac-opt { flex: 1; min-width: 64px; padding: 6px 8px; border: 1.5px solid var(--line); background: var(--paper); border-radius: 8px; font-family: var(--head); font-weight: 600; font-size: 12px; cursor: pointer; }
+.tac-opt.is-on { border-color: var(--gold); background: rgba(245,165,36,0.16); }
+.tac-slider { display: flex; align-items: center; gap: 8px; }
+.tac-slider input[type=range] { flex: 1; }
+.tac-slider span { font-size: 11px; opacity: 0.55; font-weight: 700; }
+.tac-slider span.on { opacity: 1; color: var(--gold-ink, #8a5a00); }
+.tac-default-check { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+/* atalho de presets na tela de tática ao vivo */
+.mlf-saved-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.mlf-saved-preset { border: 1.5px solid var(--line); background: var(--paper); color: var(--ink); border-radius: 8px; padding: 5px 9px; font-family: var(--head); font-weight: 600; font-size: 12px; cursor: pointer; }
+.mlf-saved-preset.is-default { border-color: var(--gold); }
