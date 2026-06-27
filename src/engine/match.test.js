@@ -44,6 +44,28 @@ describe("simulateMatch — realismo (regressão)", () => {
     expect(p).toBeLessThan(0.98);
   });
 
+  it("determinismo: mesma seed → partida idêntica (replay)", () => {
+    const A = squad(83), B = squad(79); // MESMOS elencos nos dois runs (mesmos inputs)
+    for (const seed of [1, 42, 99999, 2 ** 31]) {
+      const a = simulateMatch(A, B, { knockout: true, seed });
+      const b = simulateMatch(A, B, { knockout: true, seed });
+      expect(a.homeGoals).toBe(b.homeGoals);
+      expect(a.awayGoals).toBe(b.awayGoals);
+      expect(a.winner).toBe(b.winner);
+      expect(JSON.stringify(a.events)).toBe(JSON.stringify(b.events));
+      expect(JSON.stringify(a.pens)).toBe(JSON.stringify(b.pens));
+    }
+  });
+
+  it("seeds diferentes → resultados variam (não trava num placar)", () => {
+    const results = new Set();
+    for (let s = 0; s < 40; s++) {
+      const r = simulateMatch(squad(80), squad(80), { knockout: false, seed: s });
+      results.add(r.homeGoals + "x" + r.awayGoals);
+    }
+    expect(results.size).toBeGreaterThan(5);
+  });
+
   it("coerência: nunca mais gols que finalizações implícitas; placar = soma dos eventos de gol", () => {
     for (let i = 0; i < 500; i++) {
       const r = simulateMatch(squad(80), squad(82), { knockout: true });

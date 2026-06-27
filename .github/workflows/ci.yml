@@ -22,4 +22,4 @@ jobs:
       - name: Testes (vitest)
         run: npm test
       - name: Calibração de realismo (gate — falha se sair dos alvos)
-        run: node src/engine/calibrate.js 10000 800
+        run: npm run sim:calibrate

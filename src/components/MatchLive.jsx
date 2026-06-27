@@ -90,7 +90,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   useEffect(() => {
     if (!controller) return;
     const eng = createLiveMatch(home, away, {
-      knockout: match.knockout, homeColor, awayColor,
+      knockout: match.knockout, homeColor, awayColor, seed: match.seed,
       cpu: { home: !!homeMgr?.isBot, away: !!awayMgr?.isBot },
     });
     engineRef.current = eng;

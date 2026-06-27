@@ -3,6 +3,7 @@
 // SEM vantagem de mando. Assim "simular" e "assistir" convergem (relatório §4/§7).
 
 import { computeLambdas } from "./rates.js";
+import { mulberry32, randomSeed } from "./rng.js";
 
 function avg(arr) {
   return arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
@@ -31,13 +32,13 @@ export function teamRatings(squad) {
 }
 
 // Número de gols ~ Poisson(lambda) (algoritmo de Knuth).
-function poisson(lambda) {
+function poisson(lambda, rng) {
   const L = Math.exp(-lambda);
   let k = 0;
   let p = 1;
   do {
     k++;
-    p *= Math.random();
+    p *= rng();
   } while (p > L);
   return k - 1;
 }
@@ -58,12 +59,12 @@ function scorerWeight(p) {
   }
 }
 
-function pickScorer(squad) {
+function pickScorer(squad, rng) {
   if (!squad.length) return null;
   const weights = squad.map(scorerWeight);
   const total = weights.reduce((s, x) => s + x, 0);
-  if (total <= 0) return squad[Math.floor(Math.random() * squad.length)];
-  let r = Math.random() * total;
+  if (total <= 0) return squad[Math.floor(rng() * squad.length)];
+  let r = rng() * total;
   for (let i = 0; i < squad.length; i++) {
     r -= weights[i];
     if (r <= 0) return squad[i];
@@ -77,23 +78,23 @@ function kickProb(squad) {
 }
 
 // Disputa de pênaltis: 5 cobranças + morte súbita.
-function shootout(home, away) {
+function shootout(home, away, rng) {
   let h = 0;
   let a = 0;
   const ph = kickProb(home.squad);
   const pa = kickProb(away.squad);
   const order = [];
   for (let i = 0; i < 5; i++) {
-    const sh = Math.random() < ph;
-    const sa = Math.random() < pa;
+    const sh = rng() < ph;
+    const sa = rng() < pa;
     if (sh) h++;
     if (sa) a++;
     order.push({ side: "home", scored: sh }, { side: "away", scored: sa });
   }
   let guard = 0;
   while (h === a && guard < 20) {
-    const sh = Math.random() < ph;
-    const sa = Math.random() < pa;
+    const sh = rng() < ph;
+    const sa = rng() < pa;
     if (sh) h++;
     if (sa) a++;
     order.push({ side: "home", scored: sh }, { side: "away", scored: sa });
@@ -103,17 +104,17 @@ function shootout(home, away) {
 }
 
 // Choque de forma por partida (lognormal, média 1) — variância/zebra (relatório §6.6).
-function formShock() {
+function formShock(rng) {
   let u = 0, v = 0;
-  while (!u) u = Math.random();
-  while (!v) v = Math.random();
+  while (!u) u = rng();
+  while (!v) v = rng();
   const z = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
   const SIGMA = 0.13;
   return Math.exp(SIGMA * z - (SIGMA * SIGMA) / 2);
 }
 
 // Monta um estado mínimo p/ reusar o λ do motor ao vivo (Dixon-Coles, campo neutro).
-function lambdasFor(home, away) {
+function lambdasFor(home, away, rng) {
   const toTokens = (squad) => squad.map((p) => ({ ...p, stamina: 100, out: false }));
   const eq = { posture: "equilibrado", marking: "leve", build: 0.4 };
   const state = {
@@ -121,25 +122,27 @@ function lambdasFor(home, away) {
     tactics: { home: { ...eq }, away: { ...eq } },
     men: { home: 11, away: 11 },
     score: [0, 0], minute: 0,
-    form: { home: formShock(), away: formShock() },
+    form: { home: formShock(rng), away: formShock(rng) },
   };
   return computeLambdas(state); // { home, away } — simétrico, SEM termo de mando
 }
 
-// Simula a partida. home/away = { id, name, squad: [players] }.
-export function simulateMatch(home, away, { knockout = false } = {}) {
-  const lam = lambdasFor(home, away); // campo neutro, sem vantagem de casa
+// Simula a partida. home/away = { id, name, squad: [players] }. `seed` torna o
+// resultado reproduzível (mesma seed → mesmo placar); sem seed, sorteia uma.
+export function simulateMatch(home, away, { knockout = false, seed } = {}) {
+  const rng = mulberry32((seed ?? randomSeed()) >>> 0);
+  const lam = lambdasFor(home, away, rng); // campo neutro, sem vantagem de casa
   const xgH = lam.home;
   const xgA = lam.away;
 
-  const gh = poisson(xgH);
-  const ga = poisson(xgA);
+  const gh = poisson(xgH, rng);
+  const ga = poisson(xgA, rng);
 
   const goals = [];
   function addGoals(n, side, team) {
     for (let i = 0; i < n; i++) {
-      const minute = 1 + Math.floor(Math.random() * 90);
-      const scorer = pickScorer(team.squad);
+      const minute = 1 + Math.floor(rng() * 90);
+      const scorer = pickScorer(team.squad, rng);
       goals.push({ minute, side, scorer });
     }
   }
@@ -170,7 +173,7 @@ export function simulateMatch(home, away, { knockout = false } = {}) {
 
   let pens = null;
   if (knockout && winner === "draw") {
-    pens = shootout(home, away);
+    pens = shootout(home, away, rng);
     winner = pens.home > pens.away ? "home" : "away";
   }
 

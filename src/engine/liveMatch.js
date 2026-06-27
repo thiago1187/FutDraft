@@ -8,22 +8,14 @@
 
 import { teamRatings } from "./match.js";
 import { computeLambdas, effOvr } from "./rates.js";
+import { mulberry32, randomSeed, gaussian } from "./rng.js";
 
 const MATCH_MS_1X = 110000; // 90' em ~110s a 1× (~1,2s por minuto) — dá pra acompanhar
 const HALF = 45;
 const SIM_STEP = 450; // ms (escalados) entre decisões — jogadas mais deliberadas/visíveis
 
-// Ruído gaussiano (Box-Muller) p/ o "choque de forma" por partida.
-function randn() {
-  let u = 0, v = 0;
-  while (!u) u = Math.random();
-  while (!v) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
-
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
-const rnd = (a = 1) => Math.random() * a;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 function jersey(p, i) {
@@ -51,13 +43,21 @@ export function createLiveMatch(home, away, opts = {}) {
   const rh = teamRatings(home.squad);
   const ra = teamRatings(away.squad);
 
+  // PRNG semeável: toda aleatoriedade da partida sai daqui (determinístico pela seed).
+  // A seed é persistida em `state.seed` para reproduzir a partida (replay/multiplayer).
+  const seed = (opts.seed ?? randomSeed()) >>> 0;
+  const rng = mulberry32(seed);
+  const rnd = (a = 1) => rng() * a;
+  const randn = () => gaussian(rng);
+
   const state = {
+    seed,
     home: { id: home.id, name: home.name, color: opts.homeColor || "#E94E27" },
     away: { id: away.id, name: away.name, color: opts.awayColor || "#2B5BA8" },
     minute: 0,
     phase: "1T", // 1T | INT | 2T | FIM | PEN
     score: [0, 0],
-    possession: Math.random() < 0.5 ? "home" : "away",
+    possession: rnd() < 0.5 ? "home" : "away",
     ball: { x: 50, y: 50 },
     carrier: null, // { side, idx }
     pass: null, // passe em curso { toIdx, t, dur, fx, fy }
@@ -578,7 +578,7 @@ export function createLiveMatch(home, away, opts = {}) {
     if (state.phase === "INT") {
       if (state.ready.home && state.ready.away) {
         state.phase = "2T";
-        state.possession = Math.random() < 0.5 ? "home" : "away";
+        state.possession = rnd() < 0.5 ? "home" : "away";
         state.carrier = null; state.pass = null;
         emit("whistle", null, { text: "Começa o 2º tempo" });
       } else {

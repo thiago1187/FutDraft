@@ -33,6 +33,7 @@ import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
 import { listFriendships } from "./lib/social.js";
+import { randomSeed } from "./engine/rng.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -507,7 +508,9 @@ export default function App() {
     },
     // Abre a partida 2D ao vivo (resultado é gerado pelo motor ao terminar).
     startLiveMatch(matchId) {
-      applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now() } }));
+      // seed persistida na sala → a partida é reproduzível pela seed (replay/multiplayer)
+      const seed = randomSeed();
+      applyEngine((prev) => ({ ...prev, presenting: { matchId, mode: "live", ts: Date.now(), seed } }));
     },
     finishLiveMatch(matchId, result) {
       applyEngine((prev) => {
