@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Avatar } from "./bits.jsx";
-import { listMyPresets } from "../lib/tacticsPresets.js";
+import { listMyTactics } from "../lib/savedTactics.js";
 
 // Tela de PRONTO pós-draft: cada técnico confirma e, se quiser, já deixa a tática
 // definida (vale na 1ª partida dele). A competição só começa quando TODOS confirmam.
@@ -38,7 +38,7 @@ function TacticModal({ teamName, initial, onClose, onSave }) {
 
   useEffect(() => {
     let alive = true;
-    listMyPresets().then((r) => alive && setPresets(r)).catch(() => {});
+    listMyTactics().then((r) => alive && setPresets(r)).catch(() => {});
     return () => { alive = false; };
   }, []);
 

@@ -1,8 +1,12 @@
-// Autenticação por E-MAIL real + SENHA.
-// O username (identidade pública, índice único em profiles) é DERIVADO do e-mail;
-// o trigger `on_auth_user_created` cria o profile e garante unicidade do username.
-// E-mail real habilita recuperação de senha por link (resetPasswordForEmail).
+// Autenticação por E-MAIL real OU NOME DE USUÁRIO + SENHA.
+// - Com e-mail real: habilita recuperação de senha por link.
+// - Só com usuário: usa um e-mail sintético interno `${user}@futdraft.app` (sem caixa de
+//   entrada, então não dá pra recuperar senha por e-mail).
+// O username é a identidade pública (índice único em profiles); o trigger
+// `on_auth_user_created` cria o profile e garante unicidade do username.
 import { supabase, hasSupabase } from "./supabase.js";
+
+const EMAIL_DOMAIN = "futdraft.app"; // domínio sintético p/ contas só-com-usuário
 
 export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -13,8 +17,6 @@ export function validEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && e.length <= 254;
 }
 
-// Username público derivado da parte local do e-mail (só p/ semear o profile;
-// o trigger garante unicidade — se colidir, vira `user_<id>`).
 export function normalizeUsername(username) {
   return String(username || "")
     .trim()
@@ -22,34 +24,63 @@ export function normalizeUsername(username) {
     .replace(/[^a-z0-9_.-]/g, "");
 }
 
+export function validUsername(username) {
+  const u = normalizeUsername(username);
+  return u.length >= 3 && u.length <= 20;
+}
+
+// "tem @" → tratamos como tentativa de e-mail (real); senão, como nome de usuário.
+function looksLikeEmail(s) {
+  return String(s || "").includes("@");
+}
+
+// Aceita e-mail OU usuário no mesmo campo (login e cadastro).
+export function validIdentifier(identifier) {
+  return looksLikeEmail(identifier) ? validEmail(identifier) : validUsername(identifier);
+}
+
 function usernameFromEmail(email) {
   const local = normalizeEmail(email).split("@")[0] || "";
   return normalizeUsername(local).slice(0, 20);
 }
 
-// Cadastro: cria o usuário no Auth com e-mail real + metadados; o trigger no banco cria
-// a linha em profiles (username derivado/único). Depois grava os extras (time/escudo/cor).
-export async function signUp({ email, password, displayName, teamName, emoji, color }) {
+// Resolve o campo único em { email p/ o Auth, username público, isRealEmail }.
+function resolveIdentity(identifier) {
+  if (looksLikeEmail(identifier)) {
+    const mail = normalizeEmail(identifier);
+    if (!validEmail(mail)) throw new Error("Informe um e-mail válido.");
+    return { email: mail, username: usernameFromEmail(mail), isRealEmail: true };
+  }
+  const uname = normalizeUsername(identifier);
+  if (!validUsername(uname)) throw new Error("Usuário deve ter 3 a 20 caracteres (a-z, 0-9, . _ -).");
+  return { email: `${uname}@${EMAIL_DOMAIN}`, username: uname, isRealEmail: false };
+}
+
+// Cadastro: `identifier` é e-mail real OU nome de usuário. O trigger cria o profile
+// (username único). Depois grava os extras (time/escudo/cor).
+export async function signUp({ identifier, password, displayName, teamName, emoji, color }) {
   if (!hasSupabase) throw new Error("Supabase não configurado");
-  const mail = normalizeEmail(email);
-  if (!validEmail(mail)) throw new Error("Informe um e-mail válido.");
+  const { email, username } = resolveIdentity(identifier);
   if (!password || password.length < 6) throw new Error("A senha precisa de pelo menos 6 caracteres.");
-  const uname = usernameFromEmail(mail);
 
   const { data, error } = await supabase.auth.signUp({
-    email: mail,
+    email,
     password,
-    options: { data: { username: uname, display_name: displayName || uname } },
+    options: { data: { username, display_name: displayName || username } },
   });
   if (error) {
-    if (isTakenError(error)) throw new Error("Esse e-mail já tem conta. Faça login ou recupere a senha.");
+    if (isTakenError(error)) {
+      throw new Error(looksLikeEmail(identifier)
+        ? "Esse e-mail já tem conta. Faça login ou recupere a senha."
+        : "Esse usuário já existe. Escolha outro.");
+    }
     throw new Error(humanize(error));
   }
 
   // Contas são auto-confirmadas no banco (trigger), então normalmente já vem sessão.
   // Se não vier (ex.: confirmação ligada), tenta logar na hora.
   if (!data.session) {
-    await signIn({ email: mail, password });
+    await signIn({ identifier, password });
   }
 
   // Completa o profile com os campos que o trigger não setou (time/escudo/cor).
@@ -57,16 +88,14 @@ export async function signUp({ email, password, displayName, teamName, emoji, co
   return data.user;
 }
 
-// Login com e-mail + senha.
-export async function signIn({ email, password }) {
+// Login: `identifier` é e-mail real OU nome de usuário.
+export async function signIn({ identifier, password }) {
   if (!hasSupabase) throw new Error("Supabase não configurado");
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: normalizeEmail(email),
-    password,
-  });
+  const { email } = resolveIdentity(identifier);
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     if (String(error.message || "").toLowerCase().includes("invalid")) {
-      throw new Error("E-mail ou senha incorretos.");
+      throw new Error("E-mail/usuário ou senha incorretos.");
     }
     throw new Error(humanize(error));
   }

@@ -3,8 +3,8 @@ import { createLiveMatch, penaltyScored } from "../engine/liveMatch.js";
 import { teamRatings } from "../engine/match.js";
 import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
-import { listMyPresets } from "../lib/tacticsPresets.js";
 import { escudoImg, Avatar } from "./bits.jsx";
+import { listMyTactics } from "../lib/savedTactics.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
@@ -809,26 +809,14 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings, oppPl
   const dirty = ["posture", "line", "build", "marking", "attackSide", "manMark"].some((k) => pending[k] !== cur[k]);
   function set(k, v) { if (!locked) setPending((p) => ({ ...p, [k]: v })); }
   function applyPreset(p) { if (!locked) setPending((cur2) => ({ ...cur2, posture: p.posture, line: p.line, marking: p.marking, build: p.build })); }
-
-  // Presets salvos do jogador (perfil) como atalho — preenchem as 5 alavancas de time.
-  const [savedPresets, setSavedPresets] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    listMyPresets().then((r) => alive && setSavedPresets(r)).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  function applySaved(p) {
-    if (locked || !p?.tactics) return;
-    const t = p.tactics;
-    setPending((c) => {
-      const next = { ...c };
-      for (const k of ["posture", "line", "build", "marking", "attackSide"]) if (t[k] != null) next[k] = t[k];
-      return next;
-    });
-  }
   const build = pending.build ?? 0.4;
   const activePreset = matchingPreset(pending);
   const synergy = computeSynergy(ratings, pending);
+
+  // Bloco E.3 — atalho dos presets salvos do usuário (saved_tactics); preenche as alavancas.
+  const [savedPresets, setSavedPresets] = useState([]);
+  useEffect(() => { listMyTactics().then(setSavedPresets).catch(() => {}); }, []);
+  function applySaved(t) { if (!locked && t) setPending((c) => ({ ...c, ...t })); }
 
   return (
     <div className="mlf-tactics">
@@ -841,19 +829,16 @@ function TacticsLive({ side, tactics, locked, onApply, sideColor, ratings, oppPl
             onClick={() => applyPreset(p)}>{p.name}</button>
         ))}
       </div>
-
-      {/* atalhos: presets salvos no perfil do jogador (preenchem as alavancas) */}
+      {/* Bloco E.3 — meus presets salvos (preenchem as alavancas com 1 clique) */}
       {savedPresets.length > 0 && (
-        <>
-          <div className="mlf-seg-label">Meus presets</div>
-          <div className="mlf-presets">
-            {savedPresets.map((p) => (
-              <button key={p.id} className="mlf-preset" disabled={locked} onClick={() => applySaved(p)}>
-                {p.is_default ? "⭐ " : ""}{p.name}
-              </button>
-            ))}
-          </div>
-        </>
+        <div className="mlf-saved-presets">
+          {savedPresets.map((t) => (
+            <button key={t.id} type="button" className={`mlf-saved-preset ${t.is_default ? "is-default" : ""}`} disabled={locked}
+              title="Preencher com o preset salvo" onClick={() => applySaved(t.tactics)}>
+              ⭐ {t.name}
+            </button>
+          ))}
+        </div>
       )}
 
       <Seg label="Postura" options={POSTURES} value={pending.posture} onPick={(v) => set("posture", v)} />

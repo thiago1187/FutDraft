@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Logo } from "./bits.jsx";
 
 const STEPS = [
@@ -8,8 +8,15 @@ const STEPS = [
 ];
 
 export default function Home({ onCreate, onJoin, onRejoin, session, connecting, error, isLocal, account, onSignOut, onOpenProfile, incomingRequests = 0 }) {
-  const [name, setName] = useState(account?.display_name || session?.name || "");
+  const [name, setName] = useState(account?.team_name || session?.name || "");
   const [code, setCode] = useState("");
+
+  // Preenche o campo com o nome do time assim que o perfil carrega — mas só até você
+  // digitar algo. A partir daí o que você escrever manda, sem voltar pro valor fixo.
+  const nameTouched = useRef(false);
+  useEffect(() => {
+    if (!nameTouched.current && account?.team_name) setName(account.team_name);
+  }, [account?.team_name]);
 
   const canCreate = name.trim().length >= 2;
   const canJoin = name.trim().length >= 2 && code.trim().length >= 3;
@@ -26,9 +33,12 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
       {/* ESQUERDA — apresentação */}
       <div className="split-left home-left">
         <div className="home-topbar">
-          <span className="home-kicker">FutDraft ⚽ · Copa entre amigos</span>
+          <span className="home-kicker">FutDraft <span className="home-kicker-ball" aria-hidden>⚽</span> · Copa entre amigos</span>
           {account ? (
-            <span className="home-badge">@{account.username}</span>
+            <span className="home-badge home-badge--account">
+              <span className="home-badge-ava">{(account.username || "?").charAt(0).toUpperCase()}</span>
+              @{account.username}
+            </span>
           ) : (
             <span className="home-badge">{isLocal ? "Modo local" : "Convidado"}</span>
           )}
@@ -56,7 +66,10 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
       <div className="split-right home-right">
         {account && (
           <div className="home-account">
-            <span className="home-account-who">Logado como <strong>@{account.username}</strong></span>
+            <div className="home-account-id">
+              <span className="home-account-label">Logado como</span>
+              <span className="home-account-user">@{account.username}</span>
+            </div>
             <div className="home-account-actions">
               {onOpenProfile && (
                 <button className="home-account-profile" onClick={onOpenProfile}>
@@ -78,8 +91,9 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
         )}
 
         {session && (
-          <button className="btn btn-amber btn-block" onClick={onRejoin} disabled={connecting}>
-            ↩ Voltar para a sala {session.code}
+          <button className="home-rejoin" onClick={onRejoin} disabled={connecting}>
+            <span className="home-rejoin-text">↩ Voltar para a sala</span>
+            <span className="home-rejoin-code">{session.code}</span>
           </button>
         )}
 
@@ -106,12 +120,21 @@ export default function Home({ onCreate, onJoin, onRejoin, session, connecting, 
           </button>
         </div>
 
+        {account && (
+          <div className="home-team">
+            <div className="home-team-meta">
+              <span className="home-team-label">Seu time</span>
+              <span className="home-team-name">{name.trim() ? name : (account.team_name || "Sem time definido")}</span>
+            </div>
+          </div>
+        )}
+
         <input
           className="home-name-input"
           value={name}
           maxLength={18}
           placeholder="Seu nome de técnico…"
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => { nameTouched.current = true; setName(e.target.value); }}
           onKeyDown={(e) => e.key === "Enter" && (canJoin ? submitJoin() : submitCreate())}
         />
 
