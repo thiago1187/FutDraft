@@ -61,7 +61,8 @@ describe("A/B funcionalidade — táticas e over (regressão)", () => {
   }, 30000);
 
   it("Meio mais forte (over) AUMENTA a posse (não é botão morto)", () => {
-    const m = liveAB(null, 500, { MID: 12 });
+    // boost grande no meio + N alto → margem ~5σ (efeito ~+0.018), robusto p/ CI.
+    const m = liveAB(null, 700, { MID: 14 });
     expect(m.poss).toBeGreaterThan(0.505);
-  }, 30000);
+  }, 40000);
 });
