@@ -19,7 +19,7 @@ function timeAgo(ts) {
   return `há ${Math.floor(h / 24)} d`;
 }
 
-export default function Profile({ myId, profile, onClose, onProfileChange, onEnterRoom, myRoom }) {
+export default function Profile({ myId, profile, onClose, onProfileChange, onEnterRoom, myRoom, invites = [], onAcceptInvite, onDeclineInvite }) {
   const [stats, setStats] = useState(null);
   const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [] });
   const [roomStatus, setRoomStatus] = useState({}); // code -> { joinable, reason } das salas dos amigos
@@ -52,6 +52,8 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
       <MyCard profile={profile} stats={stats} onProfileChange={onProfileChange} setNotice={setNotice} />
 
       <StatsRow stats={stats} />
+
+      <InvitesPanel invites={invites} onAccept={onAcceptInvite} onDecline={onDeclineInvite} />
 
       <FriendsPanel
         myId={myId}
@@ -181,6 +183,33 @@ function StatsRow({ stats }) {
           <div className="profile-stat-label">{label}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------- Convites recebidos (Bloco C) ----------
+function InvitesPanel({ invites, onAccept, onDecline }) {
+  if (!invites?.length) return null;
+  return (
+    <div className="profile-invites">
+      <h3 className="profile-section-title">Convites <span className="invite-count">{invites.length}</span></h3>
+      <div className="friend-list">
+        {invites.map((inv) => {
+          const from = inv.from || {};
+          const isChallenge = inv.kind === "challenge";
+          return (
+            <div className="friend-row invite-row" key={inv.id}>
+              <Avatar emoji={from.emoji} color={from.color} size={36} />
+              <div className="friend-meta">
+                <div className="friend-name">@{from.username || "amigo"}</div>
+                <div className="friend-team">{isChallenge ? "⚔️ Desafiou você" : `📩 Convidou p/ sala ${inv.room_id || ""}`}</div>
+              </div>
+              <button className="btn btn-primary btn-sm" onClick={() => onAccept?.(inv)}>Aceitar</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => onDecline?.(inv)}>Recusar</button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

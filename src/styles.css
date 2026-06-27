@@ -2359,3 +2359,8 @@ body {
 .friend-pill.off { color: var(--muted, #8a8470); background: rgba(0,0,0,0.05); }
 .friend-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
 .friend-actions .btn-sm { flex: 0 0 auto; }
+
+/* Bloco C — convites recebidos */
+.profile-invites { margin: 10px 0 4px; }
+.invite-count { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--red); color: #fff; font-size: 12px; font-weight: 800; vertical-align: middle; }
+.invite-row { border: 1.5px dashed var(--gold); border-radius: 10px; }

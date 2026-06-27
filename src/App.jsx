@@ -33,6 +33,10 @@ import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
 import { listFriendships, touchPresence, setCurrentRoom } from "./lib/social.js";
+import {
+  listIncomingInvites, acceptInvite, declineInvite, setInviteRoom,
+  listAcceptedChallengesToHost, listMyAcceptedChallengeRooms, subscribeInvites,
+} from "./lib/invites.js";
 import { randomSeed } from "./engine/rng.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
@@ -137,6 +141,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
   const [incomingCount, setIncomingCount] = useState(0);
+  const [incomingInvites, setIncomingInvites] = useState([]); // convites/desafios pendentes recebidos
   const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
   const [gstate, setGstate] = useState(null);
@@ -150,6 +155,10 @@ export default function App() {
   const [squadsError, setSquadsError] = useState("");
   const roomRef = useRef(null);
   const wasMemberRef = useRef(false);
+  // Coordenação de convites (Bloco C): evita criar 2 salas pro mesmo desafio e re-entrar.
+  const challengeBusyRef = useRef(false);
+  const consumedInvRef = useRef(new Set());
+  const inviteTickRef = useRef(async () => {});
 
   // Carrega as seleções reais do Supabase uma vez (250 seleções / 5.6k jogadores).
   useEffect(() => {
@@ -211,6 +220,50 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pagehide", onLeaveApp);
     };
+  }, [authUid]);
+
+  // ---------- Bloco C — Convites/desafios recebidos (coordenação) ----------
+  // Mantido num ref atualizado a cada render p/ a tarefa sempre enxergar o estado mais
+  // novo (sala atual, profile) sem ter de recriar a subscription/poll a cada mudança.
+  const inviteName = () => profile?.display_name || session?.name || "Técnico";
+  inviteTickRef.current = async () => {
+    if (!authUid) return;
+    // 1) pendentes recebidos → badge + área de convites (expira > 10 min no client).
+    try { setIncomingInvites(await listIncomingInvites(authUid)); } catch (_) {}
+    // 2) DESAFIANTE: meu desafio foi aceito e ainda não tem sala → crio a sala e gravo o código.
+    try {
+      const toHost = await listAcceptedChallengesToHost(authUid);
+      if (toHost.length && !roomRef.current && !challengeBusyRef.current) {
+        challengeBusyRef.current = true;
+        try {
+          const code = await onCreate(inviteName());
+          if (code) { await setInviteRoom(toHost[0].id, code); setShowProfile(false); }
+        } finally { challengeBusyRef.current = false; }
+      }
+    } catch (_) {}
+    // 3) DESAFIADO: aceitei um desafio e a sala já existe → entro nela (uma vez só).
+    try {
+      const ready = await listMyAcceptedChallengeRooms(authUid);
+      for (const inv of ready) {
+        if (roomRef.current) break;
+        if (consumedInvRef.current.has(inv.id)) continue;
+        consumedInvRef.current.add(inv.id);
+        setShowProfile(false);
+        onJoin(inv.room_id, inviteName());
+        break;
+      }
+    } catch (_) {}
+  };
+
+  // Dispara a coordenação ao logar, periodicamente (reforço) e via realtime de game_invites.
+  useEffect(() => {
+    if (!authUid) { setIncomingInvites([]); return; }
+    let alive = true;
+    const tick = () => { if (alive) inviteTickRef.current(); };
+    tick();
+    const iv = setInterval(tick, 12_000);
+    const off = subscribeInvites(authUid, tick);
+    return () => { alive = false; clearInterval(iv); off && off(); };
   }, [authUid]);
 
   useEffect(() => {
@@ -295,8 +348,10 @@ export default function App() {
         presenceMeta: { cid: myId, name },
       });
       attach(r, name);
+      return code; // usado pela coordenação de desafios (Bloco C) p/ gravar no convite
     } catch (e) {
       setError(friendlyError(e, "Não foi possível criar a sala."));
+      return null;
     } finally {
       setConnecting(false);
     }
@@ -792,6 +847,22 @@ export default function App() {
             if (roomRef.current && roomRef.current.code !== code) { try { await roomRef.current.leave(); } catch (_) {} }
             onJoin(code, nm);
           }}
+          invites={incomingInvites}
+          onAcceptInvite={async (inv) => {
+            try { await acceptInvite(inv.id); } catch (_) {}
+            setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
+            if (inv.kind === "invite" && inv.room_id) {
+              setShowProfile(false);
+              const nm = profile?.display_name || session?.name || "Técnico";
+              if (roomRef.current && roomRef.current.code !== inv.room_id) { try { await roomRef.current.leave(); } catch (_) {} }
+              onJoin(inv.room_id, nm);
+            }
+            // desafio: a coordenação (inviteTickRef) entra na sala quando o desafiante criá-la
+          }}
+          onDeclineInvite={async (inv) => {
+            try { await declineInvite(inv.id); } catch (_) {}
+            setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
+          }}
         />
       </div>
     );
@@ -821,7 +892,7 @@ export default function App() {
           account={auth ? profile : null}
           onSignOut={auth ? onSignOut : null}
           onOpenProfile={auth ? () => setShowProfile(true) : null}
-          incomingRequests={incomingCount}
+          incomingRequests={incomingCount + incomingInvites.length}
         />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>
