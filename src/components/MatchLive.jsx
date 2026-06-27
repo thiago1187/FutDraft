@@ -41,7 +41,7 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
-export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist }) {
+export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist, managerTactics }) {
   const controller = isHost;
   const engineRef = useRef(null);
   const rafRef = useRef(0);
@@ -103,6 +103,15 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       cpu: { home: !!homeMgr?.isBot, away: !!awayMgr?.isBot },
     });
     engineRef.current = eng;
+    // Táticas pré-definidas no ready-gate: o host (autoritativo) aplica as dos dois técnicos
+    // ao criar a partida nova (não na reidratação). Usa o setTactic público do motor —
+    // só preenche state.tactics; não muda a lógica de simulação.
+    if (!resume && managerTactics) {
+      const ht = managerTactics[homeMgr?.id];
+      const at = managerTactics[awayMgr?.id];
+      if (ht) eng.setTactic("home", ht);
+      if (at) eng.setTactic("away", at);
+    }
     if (!resume && forcePens) {
       eng.beginMatch();
       eng.state.phase = "PEN";
@@ -550,8 +559,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         )}
       </div>
 
-      {/* TÁTICA — overlay (mantém o controle ao vivo sem ocupar a tela toda) */}
-      {tacticsOpen && iAmManager && (
+      {/* TÁTICA — overlay (mantém o controle ao vivo sem ocupar a tela toda).
+          Enquanto há pênalti (em jogo ou disputa), a tática fica escondida: o pênalti
+          tem prioridade total na tela e volta a aparecer quando o lance termina. */}
+      {tacticsOpen && iAmManager && !igPen && !pens && (
         <div className="mlf-tactics-overlay" onClick={() => setTacticsOpen(false)}>
           <div className="mlf-tactics-card" onClick={(e) => e.stopPropagation()}>
             <div className="mlf-tactics-head">
@@ -581,7 +592,15 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
             <div className="ml-ht-card">
               <span className="pen-eyebrow">Intervalo</span>
               <div className="ml-ht-score">{homeName} <b>{view.score[0]}</b> — <b>{view.score[1]}</b> {awayName}</div>
-              <p className="ml-ht-text">Ajuste sua tática (botão ⚙ Tática) e confirme para começar o 2º tempo.</p>
+              <p className="ml-ht-text">Ajuste sua tática para o 2º tempo e confirme quando estiver pronto.</p>
+
+              {/* O ⚙ do cockpit fica atrás deste overlay — botão dedicado abre a Tática aqui.
+                  Aplicar uma alavanca vale já no 2º tempo (setTactic → recalcula o λ). */}
+              {iAmManager && (
+                <button className="btn btn-ghost btn-block ml-ht-tactics" onClick={() => setTacticsOpen(true)}>
+                  ⚙ Ajustar tática
+                </button>
+              )}
 
               {controllable.length === 0 ? (
                 <div className="waiting">Aguardando os técnicos confirmarem…</div>

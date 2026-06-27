@@ -25,6 +25,7 @@ import Home from "./components/Home.jsx";
 import Lobby from "./components/Lobby.jsx";
 import Draft7a0 from "./components/Draft7a0.jsx";
 import Tournament from "./components/Tournament.jsx";
+import ReadyGate from "./components/ReadyGate.jsx";
 import Champion from "./components/Champion.jsx";
 import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
@@ -68,10 +69,14 @@ function applyDraftIntent(prev, intent, players, settings) {
   }
   const next = { ...prev, draft: d };
   if (d.done) {
-    next.phase = "tournament";
+    // Ready-gate pós-draft: vai para a tela de PRONTO (não direto pra partida). O torneio
+    // já é criado aqui, mas só começa quando todos confirmarem (fase "ready" → "tournament").
+    next.phase = "ready";
     next.tournament = createTournament(players || prev.players, settings || prev.settings);
     // token estável por instância de torneio — chave para gravar matches/champion no Supabase
     next.tournamentToken = "t_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    next.readyMgrs = {};        // confirmações zeram a cada novo torneio
+    next.managerTactics = {};   // táticas pré-definidas zeram a cada novo torneio
   }
   return next;
 }
@@ -133,6 +138,10 @@ function makeSquadBot(players = []) {
   };
 }
 
+// Tempo contínuo sem o anfitrião na presença antes de declará-lo ausente (aviso + migração
+// T7). Absorve soluços de presença/reconexão — um sync isolado não dispara nada.
+const HOST_GRACE_MS = 9000;
+
 export default function App() {
   // Identidade: quando logado, é o auth.uid() (Supabase Auth); offline/convidado cai no
   // id anônimo do aparelho. `auth === undefined` = ainda verificando a sessão salva.
@@ -157,6 +166,8 @@ export default function App() {
   const [squadsError, setSquadsError] = useState("");
   const roomRef = useRef(null);
   const wasMemberRef = useRef(false);
+  const [hostGone, setHostGone] = useState(false); // anfitrião ausente CONFIRMADO (pós-grace)
+  const hostGraceRef = useRef(null);
   // Coordenação de convites (Bloco C): evita criar 2 salas pro mesmo desafio e re-entrar.
   const challengeBusyRef = useRef(false);
   const consumedInvRef = useRef(new Set());
@@ -456,7 +467,7 @@ export default function App() {
     if (!next || next === prev) return;
     if (next.phase !== prev.phase) r.setPhase(next.phase);
     const engine = {};
-    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken"]) {
+    for (const k of ["draft", "tournament", "presenting", "tournamentToken", "draftToken", "readyMgrs", "managerTactics"]) {
       if (next[k] !== prev[k]) engine[k] = next[k] ?? null;
     }
     if (Object.keys(engine).length) r.setEngine(engine);
@@ -586,6 +597,27 @@ export default function App() {
         roomRef.current?.broadcast?.("draft", full);
       }
     },
+    // Ready-gate pós-draft: confirma um técnico. Controlador aplica direto; cliente avisa o
+    // host por broadcast (host autoritativo escreve rooms.state, igual ao draft).
+    markReady(managerId) {
+      const id = managerId || myId;
+      const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
+      if (controller) {
+        applyEngine((prev) => ({ ...prev, readyMgrs: { ...(prev.readyMgrs || {}), [id]: true } }));
+      } else {
+        roomRef.current?.broadcast?.("ready", { managerId: id });
+      }
+    },
+    // Tática pré-definida de um técnico (vale quando a partida dele começar). Mesmo padrão.
+    setManagerTactics(managerId, tactics) {
+      const id = managerId || myId;
+      const controller = roomRef.current?.isLocal || roomRef.current?.getState()?.hostId === myId;
+      if (controller) {
+        applyEngine((prev) => ({ ...prev, managerTactics: { ...(prev.managerTactics || {}), [id]: tactics } }));
+      } else {
+        roomRef.current?.broadcast?.("preTactic", { managerId: id, tactics });
+      }
+    },
     simulateNext() {
       applyEngine((prev) => {
         const t = structuredClone(prev.tournament);
@@ -702,6 +734,8 @@ export default function App() {
         presenting: null,
         tournamentToken: null,
         draftToken: null,
+        readyMgrs: {},
+        managerTactics: {},
       }));
     },
   };
@@ -712,12 +746,31 @@ export default function App() {
     const controller = room.isLocal || gstate?.hostId === myId;
     if (!controller) return;
     const off = room.onBroadcast?.((event, data) => {
-      if (event !== "draft") return;
-      applyEngine((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+      if (event === "draft") {
+        applyEngine((prev) => applyDraftIntent(prev, data, prev.players, prev.settings));
+      } else if (event === "ready" && data?.managerId) {
+        applyEngine((prev) => ({ ...prev, readyMgrs: { ...(prev.readyMgrs || {}), [data.managerId]: true } }));
+      } else if (event === "preTactic" && data?.managerId) {
+        applyEngine((prev) => ({ ...prev, managerTactics: { ...(prev.managerTactics || {}), [data.managerId]: data.tactics } }));
+      }
     });
     return () => off && off();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, gstate?.hostId, myId]);
+
+  // Ready-gate pós-draft: o controlador avança para o torneio quando TODOS os humanos
+  // confirmam (bots entram prontos). Host não "força" no botão; anti-AFK avança após 90s.
+  useEffect(() => {
+    if (!room || gstate?.phase !== "ready") return;
+    const controller = room.isLocal || gstate.hostId === myId;
+    if (!controller) return;
+    const humans = (gstate.players || []).filter((p) => !p.isBot);
+    const ready = gstate.readyMgrs || {};
+    const advance = () => applyEngine((prev) => (prev.phase === "ready" ? { ...prev, phase: "tournament" } : prev));
+    if (humans.length > 0 && humans.every((p) => ready[p.id])) { advance(); return; }
+    const afk = setTimeout(advance, 90000);
+    return () => clearTimeout(afk);
+  }, [room, gstate?.phase, gstate?.readyMgrs, gstate?.players, gstate?.hostId, myId]);
 
   // ---------- A4: persistência de partidas/torneio (só o anfitrião autenticado) ----------
   // Garante rooms.host_id = meu uid (as policies de matches/tournaments dependem disso).
@@ -803,22 +856,33 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gstate?.draft, gstate?.draftToken, gstate?.hostId, auth, room, myId]);
 
-  // T7: migração automática de anfitrião. Se o host sai (não está na presença) e a sala
-  // segue ativa, o SUCESSOR (membro humano online de menor id — eleição determinística,
-  // só um assume) toma o comando após 4s. A partida ao vivo reidrata do estado salvo.
+  // T7 — anfitrião ausente com GRACE: só confirma a ausência (hostGone) depois de
+  // HOST_GRACE_MS contínuos sem o host na presença. Se ele reaparece dentro da janela,
+  // cancela sem piscar. Vale para o aviso "anfitrião saiu" E para a migração automática.
+  useEffect(() => {
+    if (!room || room.isLocal || !gstate) { if (hostGone) setHostGone(false); return; }
+    const absent = online.length > 0 && gstate.hostId && gstate.hostId !== myId && !online.includes(gstate.hostId);
+    if (!absent) {
+      if (hostGraceRef.current) { clearTimeout(hostGraceRef.current); hostGraceRef.current = null; }
+      if (hostGone) setHostGone(false);
+      return;
+    }
+    if (hostGone || hostGraceRef.current) return; // já confirmado ou já contando
+    hostGraceRef.current = setTimeout(() => { hostGraceRef.current = null; setHostGone(true); }, HOST_GRACE_MS);
+  }, [online, gstate, myId, room, hostGone]);
+
+  // T7: migração automática de anfitrião. Confirmada a ausência (hostGone) e a sala ainda
+  // ativa, o SUCESSOR (humano online de menor id — eleição determinística, só um assume)
+  // toma o comando. A partida ao vivo reidrata do estado salvo.
   useEffect(() => {
     if (!hasSupabase || !room || room.isLocal || !gstate) return;
-    const off = online.length > 0 && !online.includes(gstate.hostId);
-    if (!off || gstate.hostId === myId) return;
+    if (!hostGone || gstate.hostId === myId) return;
     const successor = (gstate.players || [])
       .filter((p) => !p.isBot && p.id !== gstate.hostId && online.includes(p.id))
       .map((p) => p.id).sort()[0];
     if (successor !== myId) return; // não sou o sucessor
-    const t = setTimeout(() => {
-      if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
-    }, 4000);
-    return () => clearTimeout(t);
-  }, [online, gstate, myId, room]);
+    if (roomRef.current?.getState()?.hostId !== myId) roomRef.current?.claimHost?.(myId);
+  }, [hostGone, online, gstate, myId, room]);
 
   // ---------- render ----------
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
@@ -925,7 +989,7 @@ export default function App() {
 
   const isHost = gstate.hostId === myId;
   const isLocal = !!room?.isLocal;
-  const hostOffline = !isLocal && online.length > 0 && !online.includes(gstate.hostId);
+  const hostOffline = hostGone; // já embute !isLocal + presença + grace de HOST_GRACE_MS
 
   const liveFull = gstate.phase === "tournament" && gstate.presenting?.mode === "live";
   return (
@@ -945,6 +1009,9 @@ export default function App() {
       )}
       {gstate.phase === "draft" && (
         <Draft7a0 state={gstate} myId={myId} isLocal={isLocal} isHost={isHost} actions={actions} />
+      )}
+      {gstate.phase === "ready" && (
+        <ReadyGate state={gstate} myId={myId} isHost={isHost} isLocal={isLocal} actions={actions} />
       )}
       {gstate.phase === "tournament" && (
         <Tournament
