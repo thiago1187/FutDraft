@@ -90,6 +90,7 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
           room={room}
           tournament={t}
           players={players}
+          managerTactics={state.managerTactics}
           onFinish={(result) => actions.finishLiveMatch(m.id, result)}
           onLeave={onLeave}
         />

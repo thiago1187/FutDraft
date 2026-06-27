@@ -206,7 +206,9 @@ export default function Lobby({ state, myId, online, isHost, isLocal, actions, h
 
         <div className="tecnicos-grid">
           {state.players.map((p) => {
-            const isOnline = isLocal || p.isBot || onlineSet.has(p.id);
+            // o próprio jogador está sempre presente (se ele renderiza, está conectado) —
+            // sem isso, a própria linha podia ficar "entrando…" eternamente antes do 1º sync.
+            const isOnline = isLocal || p.isBot || p.id === myId || onlineSet.has(p.id);
             const mine = p.id === myId;
             return (
               <div key={p.id} className={`tecnico-card ${mine ? "mine" : ""}`}>
