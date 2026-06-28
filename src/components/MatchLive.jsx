@@ -10,7 +10,7 @@ import { reconcileSpectatorView } from "../lib/clockSync.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
-const SPEEDS = [1, 2, 4];
+const SPEEDS = [1, 2, 3];
 // Congelamento dramático (freeze-frame) no gol/vermelho — duração em TEMPO REAL de relógio
 // de parede, igual em qualquer velocidade. Fácil de ajustar.
 const GOAL_HOLD_MS = 1700;
