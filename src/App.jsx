@@ -31,10 +31,11 @@ import DevHarness from "./components/DevHarness.jsx";
 import Auth from "./components/Auth.jsx";
 import ResetPassword from "./components/ResetPassword.jsx";
 import Profile from "./components/Profile.jsx";
+import InviteToasts from "./components/InviteToasts.jsx";
 import { getSession, onAuthChange, getProfile, signOut } from "./lib/auth.js";
 import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
-import { listFriendships, touchPresence, setCurrentRoom } from "./lib/social.js";
+import { listFriendships, touchPresence, setCurrentRoom, acceptFriend, removeFriendship } from "./lib/social.js";
 import {
   listIncomingInvites, acceptInvite, declineInvite, setInviteRoom, consumeInvite,
   listAcceptedChallengesToHost, listMyAcceptedChallengeRooms, subscribeInvites,
@@ -152,7 +153,8 @@ export default function App() {
   const [recovery, setRecovery] = useState(false); // veio do link de recuperação de senha
   const [profile, setProfile] = useState(null);
   const [showProfile, setShowProfile] = useState(false);
-  const [incomingCount, setIncomingCount] = useState(0);
+  const [incomingFriendReqs, setIncomingFriendReqs] = useState([]); // pedidos de amizade recebidos
+  const incomingCount = incomingFriendReqs.length;
   const [incomingInvites, setIncomingInvites] = useState([]); // convites/desafios pendentes recebidos
   const myId = auth?.user?.id || guestIdRef.current;
   const [room, setRoom] = useState(null);
@@ -229,14 +231,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Conta pedidos de amizade recebidos (badge no botão de perfil). Recarrega ao
-  // entrar/sair da tela de perfil (onde dá pra aceitar).
+  // Pedidos de amizade recebidos (badge no botão de perfil + toast na tela principal).
+  // Recarrega ao entrar/sair do perfil e a cada ~20s, pra um pedido novo virar toast
+  // mesmo sem o perfil aberto. O pedido continua no perfil até ser respondido.
   useEffect(() => {
-    if (!authUid) { setIncomingCount(0); return; }
+    if (!authUid) { setIncomingFriendReqs([]); return; }
     let alive = true;
-    listFriendships(authUid).then((f) => alive && setIncomingCount(f.incoming.length)).catch(() => {});
-    return () => { alive = false; };
+    const load = () => listFriendships(authUid).then((f) => alive && setIncomingFriendReqs(f.incoming || [])).catch(() => {});
+    load();
+    const iv = setInterval(load, 20_000);
+    return () => { alive = false; clearInterval(iv); };
   }, [authUid, showProfile]);
+
+  // Aceitar/recusar pedido de amizade — usado no toast (o perfil tem seu próprio fluxo).
+  async function handleAcceptFriend(fr) {
+    try { await acceptFriend(fr.friendshipId); } catch (_) {}
+    setIncomingFriendReqs((l) => l.filter((x) => x.friendshipId !== fr.friendshipId));
+  }
+  async function handleDeclineFriend(fr) {
+    try { await removeFriendship(fr.friendshipId); } catch (_) {}
+    setIncomingFriendReqs((l) => l.filter((x) => x.friendshipId !== fr.friendshipId));
+  }
 
   // Bloco A — Presença: heartbeat de last_seen enquanto o app está aberto e logado.
   // Marca "visto agora" ao montar, a cada ~30s e ao reativar a aba (foco). Os amigos
@@ -310,6 +325,23 @@ export default function App() {
     const off = subscribeInvites(authUid, tick);
     return () => { alive = false; clearInterval(iv); off && off(); };
   }, [authUid]);
+
+  // Aceitar/recusar convite — usado tanto no Perfil quanto no toast da tela principal.
+  async function handleAcceptInvite(inv) {
+    try { await acceptInvite(inv.id); } catch (_) {}
+    setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
+    if (inv.kind === "invite" && inv.room_id) {
+      setShowProfile(false);
+      const nm = inviteName();
+      if (roomRef.current && roomRef.current.code !== inv.room_id) { try { await roomRef.current.leave(); } catch (_) {} }
+      onJoin(inv.room_id, nm);
+    }
+    // desafio: a coordenação (inviteTickRef) entra na sala quando o desafiante criá-la
+  }
+  async function handleDeclineInvite(inv) {
+    try { await declineInvite(inv.id); } catch (_) {}
+    setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
+  }
 
   useEffect(() => {
     roomRef.current = room;
@@ -965,6 +997,26 @@ export default function App() {
   }, [hostGone, online, gstate, myId, room]);
 
   // ---------- render ----------
+  // Toasts da tela principal: convites/desafios + pedidos de amizade (mesma fila visual).
+  const toastItems = [
+    ...incomingInvites.map((inv) => ({
+      id: "invite:" + inv.id,
+      emoji: inv.from?.emoji, color: inv.from?.color,
+      name: "@" + (inv.from?.username || "amigo"),
+      sub: inv.kind === "challenge" ? "⚔️ Desafiou você" : `📩 Convidou p/ sala ${inv.room_id || ""}`,
+      onAccept: () => handleAcceptInvite(inv),
+      onDecline: () => handleDeclineInvite(inv),
+    })),
+    ...incomingFriendReqs.map((fr) => ({
+      id: "friend:" + fr.friendshipId,
+      emoji: fr.profile?.emoji, color: fr.profile?.color,
+      name: "@" + (fr.profile?.username || "amigo"),
+      sub: "👋 Quer ser seu amigo",
+      onAccept: () => handleAcceptFriend(fr),
+      onDecline: () => handleDeclineFriend(fr),
+    })),
+  ];
+
   if (dev) return <DevHarness onExit={() => setDev(false)} />;
 
   // Verificando a sessão salva (evita piscar a tela de login).
@@ -1016,21 +1068,8 @@ export default function App() {
             onJoin(code, nm);
           }}
           invites={incomingInvites}
-          onAcceptInvite={async (inv) => {
-            try { await acceptInvite(inv.id); } catch (_) {}
-            setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
-            if (inv.kind === "invite" && inv.room_id) {
-              setShowProfile(false);
-              const nm = profile?.display_name || session?.name || "Técnico";
-              if (roomRef.current && roomRef.current.code !== inv.room_id) { try { await roomRef.current.leave(); } catch (_) {} }
-              onJoin(inv.room_id, nm);
-            }
-            // desafio: a coordenação (inviteTickRef) entra na sala quando o desafiante criá-la
-          }}
-          onDeclineInvite={async (inv) => {
-            try { await declineInvite(inv.id); } catch (_) {}
-            setIncomingInvites((list) => list.filter((x) => x.id !== inv.id));
-          }}
+          onAcceptInvite={handleAcceptInvite}
+          onDeclineInvite={handleDeclineInvite}
         />
       </div>
     );
@@ -1062,6 +1101,7 @@ export default function App() {
           onOpenProfile={auth ? () => setShowProfile(true) : null}
           incomingRequests={incomingCount + incomingInvites.length}
         />
+        <InviteToasts items={toastItems} />
         <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
       </div>
     );
@@ -1113,6 +1153,7 @@ export default function App() {
       {gstate.phase === "lobby" && auth && !isLocal && (
         <button className="friends-fab" onClick={() => setShowProfile(true)} title="Amigos · convidar pra sala">👥 Amigos</button>
       )}
+      {!liveFull && <InviteToasts items={toastItems} />}
       <button className="dev-fab" onClick={() => setDev(true)} title="Modo desenvolvedor">🛠 DEV</button>
     </div>
   );
