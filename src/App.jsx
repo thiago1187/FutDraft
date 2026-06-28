@@ -315,12 +315,18 @@ export default function App() {
     roomRef.current = room;
   }, [room]);
 
-  // Expulsão: se eu já estava na sala e o anfitrião me removeu da lista (online),
-  // saio para a Home. Não dispara no modo local nem para o próprio anfitrião.
+  // Expulsão: se eu já estava na sala e o anfitrião me removeu da lista (online), saio para
+  // a Home. Só vale NO LOBBY (anfitrião remove antes do jogo) e com identidade estável
+  // (myId = uuid). Sem essas guardas, um "sumiço" momentâneo da lista — o refresh de token do
+  // Supabase ao focar/clicar troca myId pro id de convidado, ou uma reconexão de realtime
+  // durante a partida — disparava o leave(), que limpa a sessão e te jogava pra Home sem
+  // conseguir reconectar. Não dispara no modo local nem para o próprio anfitrião.
   useEffect(() => {
     if (!gstate) { wasMemberRef.current = false; return; }
     const inPlayers = gstate.players?.some((p) => p.id === myId);
     if (inPlayers) { wasMemberRef.current = true; return; }
+    // Blip de auth (myId vira id de convidado) ou já em jogo → não é expulsão; não derruba.
+    if (!isUuid(myId) || gstate.phase !== "lobby") return;
     if (wasMemberRef.current && gstate.hostId !== myId && !room?.isLocal) {
       wasMemberRef.current = false;
       leave();
