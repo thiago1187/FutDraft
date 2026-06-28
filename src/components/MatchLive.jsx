@@ -11,6 +11,10 @@ import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
 const SPEEDS = [1, 2, 4];
+// Congelamento dramático (freeze-frame) no gol/vermelho — duração em TEMPO REAL de relógio
+// de parede, igual em qualquer velocidade. Fácil de ajustar.
+const GOAL_HOLD_MS = 1700;
+const RED_HOLD_MS = 1500;
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
 const PEN_TIMER_MS = 7000; // disputa de pênaltis: tempo p/ escolher (depois vai no aleatório)
 const IG_PEN_TIMER_MS = 6000; // pênalti EM JOGO: tempo p/ escolher canto/mergulho
@@ -91,6 +95,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const finalRef = useRef(null);
   const endResultRef = useRef(null); // resultado retido p/ a tela de fim de partida (liga)
   const speedRef = useRef(1);
+  const freezeRef = useRef({ id: null, until: 0 }); // timer do congelamento dramático (host)
 
   const homeColor = homeMgr?.color || "#E94E27";
   const awayColor = awayMgr?.color || "#2B5BA8";
@@ -167,7 +172,22 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
-      if (e && !e.state.paused) e.step(Math.min(dt, 60), speedRef.current);
+      // CONGELAMENTO DRAMÁTICO (só RENDER): no gol/vermelho segura a cena por tempo REAL de
+      // relógio de parede (Date.now), independente da velocidade. Enquanto congelado NÃO dá
+      // step → bola/jogadores/relógio param (a cinematic segue na cena: a bola fica na rede).
+      // No fim, limpa a cinematic p/ o motor seguir sem re-segurar (evita pausa dobrada).
+      // Bot×bot não congela. Não muda cálculo/seed/resultado.
+      let frozen = false;
+      const cin = e?.state?.cinematic;
+      const dramaticCine = cin && humanSides.length > 0 && ((cin.type === "shot" && cin.outcome === "goal") || cin.type === "red");
+      if (dramaticCine) {
+        if (freezeRef.current.id !== cin.id) freezeRef.current = { id: cin.id, until: Date.now() + (cin.outcome === "goal" ? GOAL_HOLD_MS : RED_HOLD_MS) };
+        if (Date.now() < freezeRef.current.until) frozen = true;
+        else { e.state.cinematic = null; freezeRef.current = { id: null, until: 0 }; }
+      } else if (freezeRef.current.id) {
+        freezeRef.current = { id: null, until: 0 };
+      }
+      if (e && !e.state.paused && !frozen) e.step(Math.min(dt, 60), speedRef.current);
       // rede de segurança: se os dois lados já estão prontos (ex.: bot×bot), começa.
       if (e && !e.state.started && e.state.preReady?.home && e.state.preReady?.away) e.state.started = true;
       // pênalti EM JOGO recém-marcado → arma o prazo de 4s (fonte: state do motor)
@@ -462,10 +482,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   // momentum: do snapshot (cliente) ou calculado do xgTimeline do motor (host).
   const mom = typeof view.mom === "number" ? view.mom : momentumFromXg(view.xgTimeline);
   const homePct = Math.round(((mom + 1) / 2) * 100);
-  // Flash dramático de gol/vermelho: sem flash em bot×bot e p/ quem pediu menos movimento
-  // (no simular-tudo nem há render de partida, então já não dispara).
+  // Congelamento dramático de gol/vermelho: o freeze da CENA é por partida (humano em campo;
+  // bot×bot não congela), e o overlay anima a menos que o usuário tenha pedido menos
+  // movimento (reduce-motion → texto estático, sem pulsar/tremer).
   const reduceMotion = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
-  const noFlash = reduceMotion || humanSides.length === 0;
+  const dramaticActive = humanSides.length > 0;
 
   // Tela de fim de partida (pontos corridos): classificação JÁ com o resultado aplicado.
   const endStandings = (() => {
@@ -608,9 +629,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         <div className="mlf-center">
           <Pitch2D tokens={view.tokens} ball={view.ball} homeColor={homeColor} awayColor={awayColor}
             cinematic={view.cinematic} carrier={view.carrier} homeName={homeName} awayName={awayName} />
-          <CineOverlay cine={view.cinematic} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
-          <EventFlash cine={view.cinematic} suppressed={noFlash} homeColor={homeColor} awayColor={awayColor}
-            canTactics={iAmManager && !pens && !igPen} onTactics={() => setTacticsOpen(true)} />
+          <CineOverlay cine={view.cinematic} dramatic={dramaticActive} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
+          <FreezeOverlay cine={view.cinematic} active={dramaticActive} reduced={reduceMotion}
+            homeColor={homeColor} awayColor={awayColor} homeName={homeName} awayName={awayName} />
           <AudioCues active={humanSides.length > 0} started={!!view.started} lastEvent={view.lastEvent} />
         </div>
 
@@ -832,30 +853,26 @@ function GoalBalls({ n }) {
   return <span className="mlf-goals" title={`${n} gol${n > 1 ? "s" : ""}`}>{"⚽".repeat(n)}</span>;
 }
 
-// Overlay cinematográfico central (GOOOL pulsando, defesaça, cartões, pênalti).
-// Flash dramático (~1,7s) no GOL e no VERMELHO: backdrop pulsante na cor do time + um
-// atalho "⚙ Ajuste rápido" pra abrir a Tática na hora. Puro visual, cronometrado aqui
-// (não depende do motor); o relógio da simulação já segura ~1,5s via o holdMs do lance.
-function EventFlash({ cine, suppressed, canTactics, onTactics, homeColor, awayColor }) {
-  const [fx, setFx] = useState(null);
-  useEffect(() => {
-    if (suppressed) { setFx(null); return; }
-    const isGoal = cine && cine.type === "shot" && cine.outcome === "goal";
-    const isRed = cine && cine.type === "red";
-    if (!isGoal && !isRed) { setFx(null); return; }
-    setFx({ cls: isGoal ? "goal" : "red", color: cine.side === "home" ? homeColor : awayColor });
-    const t = setTimeout(() => setFx(null), 1700);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cine?.id, suppressed]);
-  if (!fx) return null;
+// Congelamento dramático: texto GRANDE e animado o tempo todo ("GOLLLL!"/"VERMELHOOO!")
+// sobre a cena CONGELADA (a cena para porque o host não dá step enquanto a cinematic de
+// gol/vermelho está ativa; a bola fica na rede pela animação do chute). Some sozinho
+// quando a cinematic sai (host limpa ao fim do tempo real). `reduced` (reduce-motion) =
+// texto estático, sem pulsar/tremer. `active` = há humano na partida (bot×bot não congela).
+function FreezeOverlay({ cine, active, reduced, homeColor, awayColor, homeName, awayName }) {
+  if (!active || !cine) return null;
+  const isGoal = cine.type === "shot" && cine.outcome === "goal";
+  const isRed = cine.type === "red";
+  if (!isGoal && !isRed) return null;
+  const color = cine.side === "home" ? homeColor : awayColor;
+  const team = cine.side === "home" ? homeName : awayName;
+  const big = isGoal ? "GOLLLL!" : "VERMELHOOO!";
+  const sub = isGoal ? `${cine.shooter ? cine.shooter + " · " : ""}${team}` : (cine.name || team);
   return (
-    <>
-      <div className={`ml-eventflash ${fx.cls}`} style={{ "--team": fx.color }} />
-      {canTactics && (
-        <button className="ml-eventflash-tac" style={{ "--team": fx.color }} onClick={onTactics}>⚙ Ajuste rápido</button>
-      )}
-    </>
+    <div className={`ml-freeze ${isGoal ? "goal" : "red"}${reduced ? " reduced" : ""}`} key={cine.id} style={{ "--team": color }}>
+      <div className="ml-freeze-tint" />
+      <div className="ml-freeze-big">{big}</div>
+      {sub && <div className="ml-freeze-sub">{sub}</div>}
+    </div>
   );
 }
 
@@ -891,8 +908,12 @@ function AudioCues({ active, started, lastEvent }) {
   return null;
 }
 
-function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
+function CineOverlay({ cine, dramatic, homeName, awayName, homeColor, awayColor }) {
   if (!cine) return null;
+  // Com humano em campo, gol/vermelho viram o congelamento dramático (FreezeOverlay);
+  // aqui o CineOverlay cuida do resto (defesaça, trave, fora, amarelo, pênalti) e, em
+  // bot×bot, ainda mostra o gol/vermelho curtinho.
+  if (dramatic && ((cine.type === "shot" && cine.outcome === "goal") || cine.type === "red")) return null;
   const teamColor = cine.side === "home" ? homeColor : awayColor;
   const teamName = cine.side === "home" ? homeName : awayName;
   let big = null, sub = null, cls = "";
