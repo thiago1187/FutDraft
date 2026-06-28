@@ -5,6 +5,7 @@ import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
 import { escudoImg, Avatar } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
+import { playWhistle, playGoal, preloadGoal } from "../lib/audio.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
@@ -39,6 +40,38 @@ function capital(s = "") {
 function lastName(name = "") {
   const p = name.split(" ");
   return p.length > 1 ? p[p.length - 1] : p[0];
+}
+
+// Momentum (-1 = só o visitante criando perigo … +1 = só o mandante): média móvel do xG
+// AO VIVO nos últimos ~8 min. Leitura pura do que o motor já produz (state.xgTimeline);
+// não altera nada da simulação.
+function momentumFromXg(timeline) {
+  if (!Array.isArray(timeline) || timeline.length < 2) return 0;
+  const last = timeline[timeline.length - 1];
+  const cutoff = last.m - 8;
+  let base = timeline[0];
+  for (let i = timeline.length - 1; i >= 0; i--) { if (timeline[i].m <= cutoff) { base = timeline[i]; break; } }
+  const dh = Math.max(0, last.h - base.h), da = Math.max(0, last.a - base.a);
+  const tot = dh + da;
+  if (tot < 0.05) return 0; // pouca ação recente → neutro
+  return Math.max(-1, Math.min(1, (dh - da) / tot));
+}
+
+// Narração curta em PT dos eventos que o motor JÁ emite (não inventa nada). Retorna
+// null p/ eventos sem narração (chute, escanteio, etc.).
+function narrateEvent(ev, homeName, awayName) {
+  if (!ev) return null;
+  const team = ev.side === "home" ? homeName : ev.side === "away" ? awayName : "";
+  const m = ev.minute != null ? `${ev.minute}'` : "";
+  switch (ev.type) {
+    case "goal": return { ic: "⚽", cls: "goal", tx: `${ev.pen ? "Gol de pênalti!" : "Gol!"} ${ev.scorer ? ev.scorer + " · " : ""}${team}`.trim(), m };
+    case "yellow": return { ic: "🟨", cls: "yellow", tx: `Amarelo — ${ev.name || ""} ${team}`.trim(), m };
+    case "red": return { ic: "🟥", cls: "red", tx: `Vermelho — ${ev.name || ""} ${team}`.trim(), m };
+    case "sub": return { ic: "🔁", cls: "sub", tx: `Troca — ${ev.outName || "?"} ↔ ${ev.inName || "?"} ${team}`.trim(), m };
+    case "save": return ev.pen ? { ic: "🧤", cls: "save", tx: `Pênalti defendido! ${team}`.trim(), m } : null;
+    case "whistle": return { ic: "📣", cls: "whistle", tx: ev.text || "Apito", m: "" };
+    default: return null;
+  }
 }
 
 export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist, managerTactics }) {
@@ -126,6 +159,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       // partida acabou (mata-mata finalizado OU tela de fim da liga) → para o loop
       // (antes ficava rodando step()+setTick a 60fps na tela de fim, gastando CPU).
       if (finishedRef.current || endResultRef.current) return;
+      // BUG: na disputa de pênaltis a simulação 2D NÃO pode seguir rodando atrás do
+      // overlay (desperdício de CPU). Para o tick/RAF — só o fluxo de pênalti segue,
+      // tocado pelo componente Penalties. Cobre tanto a entrada normal quanto forcePens.
+      if (pensStartedRef.current) { rafRef.current = 0; return; }
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
@@ -149,6 +186,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       if (e?.needsPens?.() && !pensStartedRef.current) {
         pensStartedRef.current = true;
         startPens(e);
+        return; // para o loop aqui: a disputa assume e o sim 2D não roda no fundo
       } else if (e?.isOver?.() && !finishedRef.current && !endResultRef.current) {
         const res = e.result();
         // Mata-mata avança direto; pontos corridos para na tela de fim com a tabela.
@@ -409,6 +447,13 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const sideName = mySide === "home" ? homeName : awayName;
   const iAmManager = controllable.length > 0;
   const stats = view.stats || { possession: [1, 1], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] };
+  // momentum: do snapshot (cliente) ou calculado do xgTimeline do motor (host).
+  const mom = typeof view.mom === "number" ? view.mom : momentumFromXg(view.xgTimeline);
+  const homePct = Math.round(((mom + 1) / 2) * 100);
+  // Flash dramático de gol/vermelho: sem flash em bot×bot e p/ quem pediu menos movimento
+  // (no simular-tudo nem há render de partida, então já não dispara).
+  const reduceMotion = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+  const noFlash = reduceMotion || humanSides.length === 0;
 
   // Tela de fim de partida (pontos corridos): classificação JÁ com o resultado aplicado.
   const endStandings = (() => {
@@ -490,7 +535,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       {/* PÓS-JOGO — súmula completa + corrida de xG + história */}
       {finalResult?.summary && (
         <PostMatch
-          summary={finalResult.summary} homeMgr={homeMgr} awayMgr={awayMgr} myId={myId}
+          summary={finalResult.summary} events={finalRef.current?.events} homeMgr={homeMgr} awayMgr={awayMgr} myId={myId}
           canFinish={controller} onContinue={() => onFinish(finalRef.current)} onLeave={onLeave}
         />
       )}
@@ -510,6 +555,36 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         </div>
       </div>
 
+      {/* MOMENTUM — quem está pressionando (média móvel do xG ao vivo). Só leitura. */}
+      {view.started && view.phase !== "FIM" && view.phase !== "PEN" && (
+        <div className="mlf-momentum" title="Pressão recente — média do xG dos últimos minutos">
+          <span className="mlf-mom-cap" style={{ color: homeColor }}>{homeName}</span>
+          <div className="mlf-mom-track">
+            <div className="mlf-mom-fill" style={{ width: `${homePct}%`, background: homeColor }} />
+            <div className="mlf-mom-fill" style={{ width: `${100 - homePct}%`, background: awayColor }} />
+            <span className="mlf-mom-mid" />
+          </div>
+          <span className="mlf-mom-cap" style={{ color: awayColor }}>{awayName}</span>
+        </div>
+      )}
+
+      {/* NARRAÇÃO — faixa curta dos lances que o motor já emitiu (só leitura) */}
+      {view.started && (() => {
+        const feed = (view.events || []).map((ev) => narrateEvent(ev, homeName, awayName)).filter(Boolean).slice(-3).reverse();
+        if (!feed.length) return null;
+        return (
+          <div className="mlf-narration" aria-live="polite">
+            {feed.map((f, i) => (
+              <div key={`${f.m}-${f.cls}-${f.tx}`} className={`mlf-narr ${f.cls}${i === 0 ? " latest" : ""}`}>
+                <span className="mlf-narr-ic">{f.ic}</span>
+                <span className="mlf-narr-tx">{f.tx}</span>
+                {f.m && <span className="mlf-narr-min">{f.m}</span>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* MAIN — escalações dos dois lados + campo (estilo transmissão) */}
       <div className="mlf-main">
         <aside className="mlf-side">
@@ -522,6 +597,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <Pitch2D tokens={view.tokens} ball={view.ball} homeColor={homeColor} awayColor={awayColor}
             cinematic={view.cinematic} carrier={view.carrier} homeName={homeName} awayName={awayName} />
           <CineOverlay cine={view.cinematic} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
+          <EventFlash cine={view.cinematic} suppressed={noFlash} homeColor={homeColor} awayColor={awayColor}
+            canTactics={iAmManager && !pens && !igPen} onTactics={() => setTacticsOpen(true)} />
+          <AudioCues active={humanSides.length > 0} started={!!view.started} lastEvent={view.lastEvent} />
         </div>
 
         <aside className="mlf-side">
@@ -623,7 +701,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         );
       })()}
 
-      {pens && (
+      {pens && !finalResult && (
         <Penalties
           pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
           homeMgr={homeMgr} awayMgr={awayMgr}
@@ -743,6 +821,64 @@ function GoalBalls({ n }) {
 }
 
 // Overlay cinematográfico central (GOOOL pulsando, defesaça, cartões, pênalti).
+// Flash dramático (~1,7s) no GOL e no VERMELHO: backdrop pulsante na cor do time + um
+// atalho "⚙ Ajuste rápido" pra abrir a Tática na hora. Puro visual, cronometrado aqui
+// (não depende do motor); o relógio da simulação já segura ~1,5s via o holdMs do lance.
+function EventFlash({ cine, suppressed, canTactics, onTactics, homeColor, awayColor }) {
+  const [fx, setFx] = useState(null);
+  useEffect(() => {
+    if (suppressed) { setFx(null); return; }
+    const isGoal = cine && cine.type === "shot" && cine.outcome === "goal";
+    const isRed = cine && cine.type === "red";
+    if (!isGoal && !isRed) { setFx(null); return; }
+    setFx({ cls: isGoal ? "goal" : "red", color: cine.side === "home" ? homeColor : awayColor });
+    const t = setTimeout(() => setFx(null), 1700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cine?.id, suppressed]);
+  if (!fx) return null;
+  return (
+    <>
+      <div className={`ml-eventflash ${fx.cls}`} style={{ "--team": fx.color }} />
+      {canTactics && (
+        <button className="ml-eventflash-tac" style={{ "--team": fx.color }} onClick={onTactics}>⚙ Ajuste rápido</button>
+      )}
+    </>
+  );
+}
+
+// Toca os sons dos lances que o motor JÁ emitiu: apito de início/2º tempo/cartões/fim
+// (Tone.js) e o mp3 de gol. `active` = há humano na partida (silêncio em bot×bot; o
+// simular-tudo nem renderiza). O módulo de áudio respeita prefs e o unlock por gesto.
+function AudioCues({ active, started, lastEvent }) {
+  const lastKeyRef = useRef(null);
+  const startedRef = useRef(null);
+  useEffect(() => { if (active) preloadGoal(); }, [active]);
+  // apito de início — só na transição "não começou" → "começou" (não retroativo p/ quem entra no meio)
+  useEffect(() => {
+    if (startedRef.current === null) { startedRef.current = !!started; return; }
+    if (active && started && !startedRef.current) { startedRef.current = true; playWhistle("kickoff"); }
+  }, [active, started]);
+  // demais eventos: dispara 1× por evento novo (lastEvent muda de assinatura)
+  useEffect(() => {
+    if (!active || !lastEvent) return;
+    const e = lastEvent;
+    const key = `${e.minute}|${e.type}|${e.side}|${e.scorer || e.name || e.text || ""}`;
+    if (lastKeyRef.current === null) { lastKeyRef.current = key; return; }
+    if (key === lastKeyRef.current) return;
+    lastKeyRef.current = key;
+    if (e.type === "goal") playGoal();
+    else if (e.type === "yellow") playWhistle("yellow");
+    else if (e.type === "red") playWhistle("red");
+    else if (e.type === "whistle") {
+      const t = (e.text || "").toLowerCase();
+      if (t.includes("2º tempo") || t.includes("2o tempo")) playWhistle("halftime");
+      else if (t.includes("fim") || t.includes("pênal") || t.includes("penal")) playWhistle("final");
+    }
+  }, [active, lastEvent]);
+  return null;
+}
+
 function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
   if (!cine) return null;
   const teamColor = cine.side === "home" ? homeColor : awayColor;
@@ -924,6 +1060,7 @@ function compact(s) {
       animating: !!s.penaltyPending.animating, lastKick: s.penaltyPending.lastKick || null,
     } : null,
     lastEvent: s.lastEvent, events: s.events.slice(-14), tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats, goalsBy,
+    mom: momentumFromXg(s.xgTimeline), // momentum p/ o espectador (barra de pressão)
   };
 }
 
