@@ -1,6 +1,71 @@
 import { useEffect, useState } from "react";
 import { Avatar } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
+import { buildTeam } from "../engine/team.js";
+import { teamRatings } from "../engine/match.js";
+
+// Sobrenome (ou último token) pra caber no card do time.
+function lastName(n) {
+  const s = String(n || "").trim().split(/\s+/);
+  return s[s.length - 1] || n;
+}
+
+// Força do time montado no draft, no estilo "box score": campo 2D com a formação (número +
+// nome por jogador) + painel com Geral / Ataque / Defesa e a lista posição·nome·over.
+// Mesma fonte do motor (buildTeam + teamRatings), então bate com a simulação.
+function TeamStrength({ state, player, showName }) {
+  const team = buildTeam(state, player.id);
+  const xi = team.squad || [];
+  if (!xi.length) return null;
+  const r = teamRatings(xi);
+  const slots = team.lineup?.formation?.slots || [];
+  return (
+    <div className="rt-card" style={{ "--c": player.color || "#2b5ba8" }}>
+      {/* Campo 2D: y=0 (defesa) embaixo → y=100 (ataque) em cima; cada slot na sua posição */}
+      <div className="rt-pitch">
+        <svg className="rt-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+          <g fill="none" stroke="rgba(255,255,255,.30)" strokeWidth="0.4">
+            <rect x="2" y="2" width="96" height="96" />
+            <line x1="2" y1="50" x2="98" y2="50" />
+            <circle cx="50" cy="50" r="10" />
+            <rect x="30" y="2" width="40" height="13" />
+            <rect x="30" y="85" width="40" height="13" />
+          </g>
+        </svg>
+        {xi.map((p, i) => {
+          const s = slots[i] || { x: 50, y: 8 + i * 8 };
+          return (
+            <div className="rt-token" key={p.id} style={{ left: `${s.x}%`, bottom: `${s.y}%` }}>
+              <span className="rt-disc">{p.number ?? ""}</span>
+              <span className="rt-tname">{lastName(p.name)}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Box score: geral grande + ataque/defesa + lista posição·nome·over */}
+      <div className="rt-box">
+        <div className="rt-box-head">
+          <span className="rt-eyebrow">{showName ? player.teamName : "Box score"} · {xi.length}/11</span>
+          <span className="rt-overall">{Math.round(r.overall)}</span>
+        </div>
+        <div className="rt-ad">
+          <span className="rt-atk"><b>{Math.round(r.attack)}</b> Ataque</span>
+          <span className="rt-def"><b>{Math.round(r.defense)}</b> Defesa</span>
+        </div>
+        <div className="rt-list">
+          {xi.map((p) => (
+            <div className="rt-row" key={p.id}>
+              <span className="rt-pos">{p.detail || p.pos}</span>
+              <span className="rt-name">{p.name}</span>
+              <span className="rt-ovr">{p.ovr}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Tela de PRONTO pós-draft: cada técnico confirma e, se quiser, já deixa a tática
 // definida (vale na 1ª partida dele). A competição só começa quando TODOS confirmam.
@@ -100,6 +165,10 @@ export default function ReadyGate({ state, myId, isLocal, actions }) {
         <span className="home-kicker">Draft concluído · preparação</span>
         <h1 className="screen-title ready-title">Prontos para começar?</h1>
         <p className="ready-sub">A competição começa quando todos os técnicos confirmarem. Ajuste sua tática agora se quiser — ela já vale na sua 1ª partida.</p>
+
+        {players.filter(mine).map((p) => (
+          <TeamStrength key={p.id} state={state} player={p} showName={humans.filter(mine).length > 1} />
+        ))}
 
         <div className="ready-list">
           {players.map((p) => {

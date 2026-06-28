@@ -60,7 +60,37 @@ function NotesCol({ title, color, players }) {
   );
 }
 
-export default function PostMatch({ summary, homeMgr, awayMgr, myId, canFinish, onContinue, onLeave }) {
+// Replay/resumo: timeline dos lances (gol, cartões, pênalti) lendo os MESMOS eventos que
+// o motor emitiu e que alimentam match_events. Só exibição, ordenada por minuto.
+const TL_ICON = { goal: "⚽", yellow: "🟨", red: "🟥" };
+function Timeline({ events, hN, aN, hc, ac }) {
+  const items = (events || [])
+    .filter((e) => TL_ICON[e.type] || (e.type === "save" && e.pen))
+    .map((e) => {
+      const home = e.side === "home";
+      const who = e.scorer || e.name || (home ? hN : aN);
+      const label = e.type === "goal" ? (e.pen ? `${who} (pênalti)` : who) : e.type === "save" ? "Pênalti perdido" : who;
+      return { m: e.minute ?? 0, ic: e.type === "save" ? "🧤" : TL_ICON[e.type], col: home ? hc : ac, team: home ? hN : aN, label };
+    })
+    .sort((a, b) => a.m - b.m);
+  if (!items.length) return null;
+  return (
+    <div className="pm-timeline">
+      <div className="pm-section-title">Resumo dos lances</div>
+      <div className="pm-tl-list">
+        {items.map((it, i) => (
+          <div className="pm-tl-row" key={i}>
+            <span className="pm-tl-min">{it.m}'</span>
+            <span className="pm-tl-ic">{it.ic}</span>
+            <span className="pm-tl-tx"><b style={{ color: it.col }}>{it.label}</b> · {it.team}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function PostMatch({ summary, events, homeMgr, awayMgr, myId, canFinish, onContinue, onLeave }) {
   // adversário humano (pra oferecer adicionar como amigo no fim do jogo)
   const opp = [homeMgr, awayMgr].find((m) => m && !m.isBot && m.id !== myId);
   const s = summary;
@@ -125,6 +155,9 @@ export default function PostMatch({ summary, homeMgr, awayMgr, myId, canFinish, 
             <Row label="Vermelhos" h={s.reds[0]} a={s.reds[1]} hc={hc} ac={ac} bar />
           </div>
         </div>
+
+        {/* RESUMO DOS LANCES (timeline) */}
+        <Timeline events={events} hN={hN} aN={aN} hc={hc} ac={ac} />
 
         {/* NOTAS */}
         <div className="pm-notes">

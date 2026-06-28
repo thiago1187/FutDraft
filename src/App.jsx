@@ -40,6 +40,7 @@ import {
   listAcceptedChallengesToHost, listMyAcceptedChallengeRooms, subscribeInvites,
 } from "./lib/invites.js";
 import { randomSeed } from "./engine/rng.js";
+import { unlockAudio, setSound } from "./lib/audio.js";
 
 // Aplica uma intent de draft (roll/reroll/pick/move/auto) ao estado — usado pelo
 // redutor autoritativo (anfitrião) e pelo modo local.
@@ -208,6 +209,25 @@ export default function App() {
     getProfile(authUid).then((p) => alive && setProfile(p)).catch(() => {});
     return () => { alive = false; };
   }, [authUid]);
+
+  // Áudio: aplica a preferência do perfil (profiles.prefs) no módulo de som. Default ON/0.7.
+  useEffect(() => {
+    setSound({ enabled: profile?.prefs?.sound !== false, volume: profile?.prefs?.volume ?? 0.7 });
+  }, [profile?.prefs?.sound, profile?.prefs?.volume]);
+
+  // Política de autoplay: o áudio só "destrava" depois do 1º gesto do usuário. Aí
+  // reaplica a preferência (o volume mestre depende dos nós criados no unlock).
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio().then(() => setSound({ enabled: profile?.prefs?.sound !== false, volume: profile?.prefs?.volume ?? 0.7 }));
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Conta pedidos de amizade recebidos (badge no botão de perfil). Recarrega ao
   // entrar/sair da tela de perfil (onde dá pra aceitar).
