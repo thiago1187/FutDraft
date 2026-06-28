@@ -1,6 +1,57 @@
 import { useEffect, useState } from "react";
-import { Avatar } from "./bits.jsx";
+import { Avatar, Ovr } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
+import { buildTeam } from "../engine/team.js";
+import { teamRatings } from "../engine/match.js";
+
+// Sobrenome (ou último token) pra caber no card do time.
+function lastName(n) {
+  const s = String(n || "").trim().split(/\s+/);
+  return s[s.length - 1] || n;
+}
+
+// Força do time montado no draft: Geral / Ataque / Defesa + a formação com o over de
+// cada jogador. Mesma fonte do motor (buildTeam + teamRatings) — bate com a simulação.
+function TeamStrength({ state, player, showName }) {
+  const team = buildTeam(state, player.id);
+  const xi = team.squad || [];
+  if (!xi.length) return null;
+  const r = teamRatings(xi);
+  const formName = team.lineup?.formation?.name || "";
+  const LINES = [["ATA", "ATT"], ["MEI", "MID"], ["ZAG", "DEF"], ["GOL", "GK"]];
+  return (
+    <div className="ready-team">
+      <div className="ready-team-head">
+        <span className="ready-team-title">{showName ? player.teamName : "Seu time"}</span>
+        {formName && <span className="ready-team-form">{formName}</span>}
+      </div>
+      <div className="team-ovr-row">
+        <div className="team-ovr"><b>{Math.round(r.overall)}</b><span>Geral</span></div>
+        <div className="team-ovr atk"><b>{Math.round(r.attack)}</b><span>Ataque</span></div>
+        <div className="team-ovr def"><b>{Math.round(r.defense)}</b><span>Defesa</span></div>
+      </div>
+      <div className="team-lineup">
+        {LINES.map(([label, pos]) => {
+          const ps = xi.filter((p) => p.pos === pos).sort((a, b) => b.ovr - a.ovr);
+          if (!ps.length) return null;
+          return (
+            <div className="team-line" key={label}>
+              <span className="team-line-label">{label}</span>
+              <div className="team-line-players">
+                {ps.map((p) => (
+                  <div className="team-player" key={p.id}>
+                    <Ovr value={p.ovr} />
+                    <span className="team-player-name">{lastName(p.name)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // Tela de PRONTO pós-draft: cada técnico confirma e, se quiser, já deixa a tática
 // definida (vale na 1ª partida dele). A competição só começa quando TODOS confirmam.
@@ -100,6 +151,10 @@ export default function ReadyGate({ state, myId, isLocal, actions }) {
         <span className="home-kicker">Draft concluído · preparação</span>
         <h1 className="screen-title ready-title">Prontos para começar?</h1>
         <p className="ready-sub">A competição começa quando todos os técnicos confirmarem. Ajuste sua tática agora se quiser — ela já vale na sua 1ª partida.</p>
+
+        {players.filter(mine).map((p) => (
+          <TeamStrength key={p.id} state={state} player={p} showName={humans.filter(mine).length > 1} />
+        ))}
 
         <div className="ready-list">
           {players.map((p) => {
