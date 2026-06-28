@@ -10,7 +10,7 @@ import { reconcileSpectatorView } from "../lib/clockSync.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
-const SPEEDS = [1, 2, 4];
+const SPEEDS = [1, 2, 3];
 const PEN_DIRS = ["cantoE", "meio", "cantoD"];
 const PEN_TIMER_MS = 7000; // disputa de pênaltis: tempo p/ escolher (depois vai no aleatório)
 const IG_PEN_TIMER_MS = 6000; // pênalti EM JOGO: tempo p/ escolher canto/mergulho
