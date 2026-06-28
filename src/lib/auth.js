@@ -152,7 +152,7 @@ export async function getProfile(userId) {
   if (!hasSupabase || !userId) return null;
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, display_name, team_name, emoji, color")
+    .select("id, username, display_name, team_name, emoji, color, prefs")
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
@@ -166,7 +166,7 @@ export async function updateMyProfile(patch) {
   const id = u?.user?.id;
   if (!id) throw new Error("Sem sessão.");
   const clean = {};
-  for (const k of ["display_name", "team_name", "emoji", "color"]) {
+  for (const k of ["display_name", "team_name", "emoji", "color", "prefs"]) {
     if (patch[k] != null) clean[k] = patch[k];
   }
   if (!Object.keys(clean).length) return null;

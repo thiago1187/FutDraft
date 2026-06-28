@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Avatar, TEAM_EMOJIS, TEAM_COLORS, TEAM_FLAGS, flagUrl, Flag } from "./bits.jsx";
 import { updateMyProfile } from "../lib/auth.js";
+import { setSound } from "../lib/audio.js";
 import { SQUADS, SQUAD_BY_ID, squadLabel } from "../data/squads.js";
 import {
   getStats, searchProfiles, listFriendships, sendFriendRequest,
@@ -40,6 +41,39 @@ function timeAgo(ts) {
   const h = Math.floor(m / 60);
   if (h < 24) return `há ${h} h`;
   return `há ${Math.floor(h / 24)} d`;
+}
+
+// Preferência de som (profiles.prefs): liga/desliga + volume. Aplica ao vivo no módulo
+// de áudio e persiste no perfil (lembra entre aparelhos). RLS de update já é do dono.
+function SoundPrefs({ profile, onProfileChange, setNotice }) {
+  const prefs = profile?.prefs || {};
+  const [sound, setSnd] = useState(prefs.sound !== false);
+  const [volume, setVol] = useState(typeof prefs.volume === "number" ? prefs.volume : 0.7);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setSound({ enabled: sound, volume }); }, [sound, volume]);
+
+  async function persist(next) {
+    setSaving(true);
+    try { const updated = await updateMyProfile({ prefs: next }); if (updated) onProfileChange?.(updated); }
+    catch (e) { setNotice?.(e?.message || "Não foi possível salvar o som."); }
+    finally { setSaving(false); }
+  }
+  return (
+    <div className="profile-sound">
+      <h3 className="profile-section-title">Som</h3>
+      <div className="sound-row">
+        <button className={"sound-toggle" + (sound ? " on" : "")} disabled={saving}
+          onClick={() => { const v = !sound; setSnd(v); persist({ sound: v, volume }); }}>
+          {sound ? "🔊 Som ligado" : "🔇 Som desligado"}
+        </button>
+        <input className="sound-vol" type="range" min="0" max="100" value={Math.round(volume * 100)} disabled={!sound || saving}
+          aria-label="Volume"
+          onChange={(e) => setVol(Number(e.target.value) / 100)}
+          onPointerUp={() => persist({ sound, volume })} onKeyUp={() => persist({ sound, volume })} />
+      </div>
+      <p className="profile-mini muted">Apitos do juiz (início, 2º tempo, cartões, fim) + torcida no gol.</p>
+    </div>
+  );
 }
 
 export default function Profile({ myId, profile, onClose, onProfileChange, onEnterRoom, myRoom, invites = [], onAcceptInvite, onDeclineInvite }) {
@@ -95,6 +129,8 @@ export default function Profile({ myId, profile, onClose, onProfileChange, onEnt
       />
 
       <StatsRow stats={stats} />
+
+      <SoundPrefs profile={profile} onProfileChange={onProfileChange} setNotice={setNotice} />
 
       <InvitesPanel invites={invites} onAccept={onAcceptInvite} onDecline={onDeclineInvite} />
 

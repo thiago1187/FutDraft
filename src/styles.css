@@ -2573,6 +2573,14 @@ body {
 .profile-subtitle { font-family: var(--head); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted2); margin: 16px 0 8px; }
 .profile-mini { font-size: 13px; padding: 4px 2px; }
 
+/* Preferência de som no perfil */
+.profile-sound { margin-top: 6px; }
+.sound-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.sound-toggle { font-family: var(--head); font-weight: 700; font-size: 13px; color: var(--ink); background: var(--cream); border: 1.5px solid var(--line); border-radius: 10px; padding: 11px 16px; cursor: pointer; min-height: 44px; transition: border-color .15s, background .15s; }
+.sound-toggle.on { border-color: var(--green); background: rgba(63,156,99,.12); }
+.sound-vol { flex: 1; min-width: 140px; accent-color: var(--gold); }
+.sound-vol:disabled { opacity: .4; }
+
 /* ---- Presets de tática no perfil ---- */
 .profile-presets-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .preset-list { display: flex; flex-direction: column; gap: 8px; }
