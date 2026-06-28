@@ -6,6 +6,7 @@ import { leagueTable, applyMatchResult } from "../engine/tournament.js";
 import { escudoImg, Avatar } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
 import { playWhistle, playGoal, preloadGoal } from "../lib/audio.js";
+import { reconcileSpectatorView } from "../lib/clockSync.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
 
@@ -177,9 +178,11 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         lastSnap.current = ts;
         room.broadcast("snap", compact(e.state));
       }
-      // T7: persiste o estado vivo na sala a cada ~3s → se eu cair, o novo anfitrião
-      // reidrata daqui (não recomeça do minuto 0).
-      if (onPersist && e && ts - lastPersist.current > 3000) {
+      // Canal CONFIÁVEL da verdade do host: persiste o estado vivo em rooms.state a cada
+      // ~1,5s. Serve ao T7 (se o host cai, o novo reidrata daqui) E à sincronização do
+      // relógio do espectador — que SALTA pra cá quando o broadcast (snap) atrasa/cai, então
+      // o não-host nunca fica mais que ~1,5s atrás do host (ver src/lib/clockSync.js).
+      if (onPersist && e && ts - lastPersist.current > 1500) {
         lastPersist.current = ts;
         try { onPersist(e.serialize()); } catch (_) {}
       }
@@ -431,10 +434,19 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
     cancelAnimationFrame(rafRef.current);
     finalRef.current = result;
     setFinalResult(result);
-    if (room) room.broadcast("final", { matchId: match.id, result });
+    if (room) {
+      // Persistência CONFIÁVEL do fim: além do broadcast (que pode cair), grava o estado
+      // final (phase FIM/over) em rooms.state. Assim o espectador reconcilia o relógio para
+      // o fim mesmo se o evento "final" se perder — nunca fica preso num minuto anterior.
+      try { if (onPersist && engineRef.current) onPersist(engineRef.current.serialize()); } catch (_) {}
+      room.broadcast("final", { matchId: match.id, result });
+    }
   }
 
-  const view = controller ? engineRef.current?.state : snap;
+  // Host renderiza o próprio motor. Espectador: NUNCA conta o tempo — segue o host e SALTA
+  // se ficar pra trás, conciliando o broadcast (snap, rápido) com o estado confiável de
+  // rooms.state (restore, re-sincroniza no reconnect). Ver src/lib/clockSync.js.
+  const view = controller ? engineRef.current?.state : reconcileSpectatorView(snap, restore?.state);
   if (!view) return <div className="ml-loading">Preparando a partida…</div>;
   const igPen = view.penaltyPending; // pênalti EM JOGO (motor no host / snapshot no cliente)
 
