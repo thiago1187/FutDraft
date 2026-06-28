@@ -56,6 +56,23 @@ function momentumFromXg(timeline) {
   return Math.max(-1, Math.min(1, (dh - da) / tot));
 }
 
+// Narração curta em PT dos eventos que o motor JÁ emite (não inventa nada). Retorna
+// null p/ eventos sem narração (chute, escanteio, etc.).
+function narrateEvent(ev, homeName, awayName) {
+  if (!ev) return null;
+  const team = ev.side === "home" ? homeName : ev.side === "away" ? awayName : "";
+  const m = ev.minute != null ? `${ev.minute}'` : "";
+  switch (ev.type) {
+    case "goal": return { ic: "⚽", cls: "goal", tx: `${ev.pen ? "Gol de pênalti!" : "Gol!"} ${ev.scorer ? ev.scorer + " · " : ""}${team}`.trim(), m };
+    case "yellow": return { ic: "🟨", cls: "yellow", tx: `Amarelo — ${ev.name || ""} ${team}`.trim(), m };
+    case "red": return { ic: "🟥", cls: "red", tx: `Vermelho — ${ev.name || ""} ${team}`.trim(), m };
+    case "sub": return { ic: "🔁", cls: "sub", tx: `Troca — ${ev.outName || "?"} ↔ ${ev.inName || "?"} ${team}`.trim(), m };
+    case "save": return ev.pen ? { ic: "🧤", cls: "save", tx: `Pênalti defendido! ${team}`.trim(), m } : null;
+    case "whistle": return { ic: "📣", cls: "whistle", tx: ev.text || "Apito", m: "" };
+    default: return null;
+  }
+}
+
 export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist, managerTactics }) {
   const controller = isHost;
   const engineRef = useRef(null);
@@ -545,6 +562,23 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <span className="mlf-mom-cap" style={{ color: awayColor }}>{awayName}</span>
         </div>
       )}
+
+      {/* NARRAÇÃO — faixa curta dos lances que o motor já emitiu (só leitura) */}
+      {view.started && (() => {
+        const feed = (view.events || []).map((ev) => narrateEvent(ev, homeName, awayName)).filter(Boolean).slice(-3).reverse();
+        if (!feed.length) return null;
+        return (
+          <div className="mlf-narration" aria-live="polite">
+            {feed.map((f, i) => (
+              <div key={`${f.m}-${f.cls}-${f.tx}`} className={`mlf-narr ${f.cls}${i === 0 ? " latest" : ""}`}>
+                <span className="mlf-narr-ic">{f.ic}</span>
+                <span className="mlf-narr-tx">{f.tx}</span>
+                {f.m && <span className="mlf-narr-min">{f.m}</span>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* MAIN — escalações dos dois lados + campo (estilo transmissão) */}
       <div className="mlf-main">
