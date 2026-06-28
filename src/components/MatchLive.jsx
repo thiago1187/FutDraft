@@ -629,8 +629,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         <div className="mlf-center">
           <Pitch2D tokens={view.tokens} ball={view.ball} homeColor={homeColor} awayColor={awayColor}
             cinematic={view.cinematic} carrier={view.carrier} homeName={homeName} awayName={awayName} />
-          <CineOverlay cine={view.cinematic} dramatic={dramaticActive} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
-          <FreezeOverlay cine={view.cinematic} active={dramaticActive} reduced={reduceMotion}
+          <CineOverlay cine={view.cinematic} dramatic={dramaticActive} scorer={view.lastEvent?.type === "goal" ? view.lastEvent.scorer : null} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
+          <FreezeOverlay cine={view.cinematic} active={dramaticActive} reduced={reduceMotion} scorer={view.lastEvent?.type === "goal" ? view.lastEvent.scorer : null}
             homeColor={homeColor} awayColor={awayColor} homeName={homeName} awayName={awayName} />
           <AudioCues active={humanSides.length > 0} started={!!view.started} lastEvent={view.lastEvent} />
         </div>
@@ -858,7 +858,7 @@ function GoalBalls({ n }) {
 // gol/vermelho está ativa; a bola fica na rede pela animação do chute). Some sozinho
 // quando a cinematic sai (host limpa ao fim do tempo real). `reduced` (reduce-motion) =
 // texto estático, sem pulsar/tremer. `active` = há humano na partida (bot×bot não congela).
-function FreezeOverlay({ cine, active, reduced, homeColor, awayColor, homeName, awayName }) {
+function FreezeOverlay({ cine, active, reduced, scorer, homeColor, awayColor, homeName, awayName }) {
   if (!active || !cine) return null;
   const isGoal = cine.type === "shot" && cine.outcome === "goal";
   const isRed = cine.type === "red";
@@ -866,7 +866,9 @@ function FreezeOverlay({ cine, active, reduced, homeColor, awayColor, homeName, 
   const color = cine.side === "home" ? homeColor : awayColor;
   const team = cine.side === "home" ? homeName : awayName;
   const big = isGoal ? "GOLLLL!" : "VERMELHOOO!";
-  const sub = isGoal ? `${cine.shooter ? cine.shooter + " · " : ""}${team}` : (cine.name || team);
+  // GOL: o AUTOR creditado vem do evento (scorer), não do chutador da animação (cine.shooter).
+  const who = scorer || cine.shooter;
+  const sub = isGoal ? `${who ? who + " · " : ""}${team}` : (cine.name || team);
   return (
     <div className={`ml-freeze ${isGoal ? "goal" : "red"}${reduced ? " reduced" : ""}`} key={cine.id} style={{ "--team": color }}>
       <div className="ml-freeze-tint" />
@@ -908,7 +910,7 @@ function AudioCues({ active, started, lastEvent }) {
   return null;
 }
 
-function CineOverlay({ cine, dramatic, homeName, awayName, homeColor, awayColor }) {
+function CineOverlay({ cine, dramatic, scorer, homeName, awayName, homeColor, awayColor }) {
   if (!cine) return null;
   // Com humano em campo, gol/vermelho viram o congelamento dramático (FreezeOverlay);
   // aqui o CineOverlay cuida do resto (defesaça, trave, fora, amarelo, pênalti) e, em
@@ -918,7 +920,7 @@ function CineOverlay({ cine, dramatic, homeName, awayName, homeColor, awayColor 
   const teamName = cine.side === "home" ? homeName : awayName;
   let big = null, sub = null, cls = "";
   if (cine.type === "shot") {
-    if (cine.outcome === "goal") { big = "GOOOL!"; sub = `${cine.shooter} · ${teamName}`; cls = "goal"; }
+    if (cine.outcome === "goal") { big = "GOOOL!"; sub = `${scorer || cine.shooter} · ${teamName}`; cls = "goal"; }
     else if (cine.outcome === "save") { big = "DEFESAÇA!"; sub = "Que defesa!"; cls = "save"; }
     else if (cine.outcome === "post") { big = "NA TRAVE!"; cls = "post"; }
     else { big = "PRA FORA!"; cls = "miss"; }
