@@ -534,7 +534,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       {/* PÓS-JOGO — súmula completa + corrida de xG + história */}
       {finalResult?.summary && (
         <PostMatch
-          summary={finalResult.summary} homeMgr={homeMgr} awayMgr={awayMgr} myId={myId}
+          summary={finalResult.summary} events={finalRef.current?.events} homeMgr={homeMgr} awayMgr={awayMgr} myId={myId}
           canFinish={controller} onContinue={() => onFinish(finalRef.current)} onLeave={onLeave}
         />
       )}

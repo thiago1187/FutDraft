@@ -2364,6 +2364,14 @@ body {
 .pm-row-bar i { display: block; height: 100%; }
 .pm-row-blabel { grid-column: 1 / -1; text-align: center; font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: -3px; }
 
+/* RESUMO DOS LANCES — timeline pós-jogo */
+.pm-timeline { margin-top: 20px; }
+.pm-tl-list { display: flex; flex-direction: column; gap: 5px; }
+.pm-tl-row { display: flex; align-items: center; gap: 10px; font-family: var(--body); font-size: 13px; color: var(--ink); }
+.pm-tl-min { font-family: var(--head); font-weight: 700; font-size: 12px; color: var(--muted); min-width: 30px; text-align: right; }
+.pm-tl-ic { font-size: 15px; flex: 0 0 auto; }
+.pm-tl-tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .pm-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 20px; }
 .pm-notes-col { display: flex; flex-direction: column; gap: 3px; }
 .pm-notes-title { font-family: var(--display); font-size: 14px; text-transform: uppercase; margin-bottom: 6px; }
