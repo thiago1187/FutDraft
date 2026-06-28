@@ -693,7 +693,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
         );
       })()}
 
-      {pens && (
+      {pens && !finalResult && (
         <Penalties
           pens={pens} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor}
           homeMgr={homeMgr} awayMgr={awayMgr}
