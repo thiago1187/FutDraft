@@ -449,6 +449,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   // momentum: do snapshot (cliente) ou calculado do xgTimeline do motor (host).
   const mom = typeof view.mom === "number" ? view.mom : momentumFromXg(view.xgTimeline);
   const homePct = Math.round(((mom + 1) / 2) * 100);
+  // Flash dramático de gol/vermelho: sem flash em bot×bot e p/ quem pediu menos movimento
+  // (no simular-tudo nem há render de partida, então já não dispara).
+  const reduceMotion = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
+  const noFlash = reduceMotion || humanSides.length === 0;
 
   // Tela de fim de partida (pontos corridos): classificação JÁ com o resultado aplicado.
   const endStandings = (() => {
@@ -592,6 +596,8 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <Pitch2D tokens={view.tokens} ball={view.ball} homeColor={homeColor} awayColor={awayColor}
             cinematic={view.cinematic} carrier={view.carrier} homeName={homeName} awayName={awayName} />
           <CineOverlay cine={view.cinematic} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
+          <EventFlash cine={view.cinematic} suppressed={noFlash} homeColor={homeColor} awayColor={awayColor}
+            canTactics={iAmManager && !pens && !igPen} onTactics={() => setTacticsOpen(true)} />
         </div>
 
         <aside className="mlf-side">
@@ -813,6 +819,32 @@ function GoalBalls({ n }) {
 }
 
 // Overlay cinematográfico central (GOOOL pulsando, defesaça, cartões, pênalti).
+// Flash dramático (~1,7s) no GOL e no VERMELHO: backdrop pulsante na cor do time + um
+// atalho "⚙ Ajuste rápido" pra abrir a Tática na hora. Puro visual, cronometrado aqui
+// (não depende do motor); o relógio da simulação já segura ~1,5s via o holdMs do lance.
+function EventFlash({ cine, suppressed, canTactics, onTactics, homeColor, awayColor }) {
+  const [fx, setFx] = useState(null);
+  useEffect(() => {
+    if (suppressed) { setFx(null); return; }
+    const isGoal = cine && cine.type === "shot" && cine.outcome === "goal";
+    const isRed = cine && cine.type === "red";
+    if (!isGoal && !isRed) { setFx(null); return; }
+    setFx({ cls: isGoal ? "goal" : "red", color: cine.side === "home" ? homeColor : awayColor });
+    const t = setTimeout(() => setFx(null), 1700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cine?.id, suppressed]);
+  if (!fx) return null;
+  return (
+    <>
+      <div className={`ml-eventflash ${fx.cls}`} style={{ "--team": fx.color }} />
+      {canTactics && (
+        <button className="ml-eventflash-tac" style={{ "--team": fx.color }} onClick={onTactics}>⚙ Ajuste rápido</button>
+      )}
+    </>
+  );
+}
+
 function CineOverlay({ cine, homeName, awayName, homeColor, awayColor }) {
   if (!cine) return null;
   const teamColor = cine.side === "home" ? homeColor : awayColor;
