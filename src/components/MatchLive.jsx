@@ -126,6 +126,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       // partida acabou (mata-mata finalizado OU tela de fim da liga) → para o loop
       // (antes ficava rodando step()+setTick a 60fps na tela de fim, gastando CPU).
       if (finishedRef.current || endResultRef.current) return;
+      // BUG: na disputa de pênaltis a simulação 2D NÃO pode seguir rodando atrás do
+      // overlay (desperdício de CPU). Para o tick/RAF — só o fluxo de pênalti segue,
+      // tocado pelo componente Penalties. Cobre tanto a entrada normal quanto forcePens.
+      if (pensStartedRef.current) { rafRef.current = 0; return; }
       const dt = lastTs.current ? ts - lastTs.current : 16;
       lastTs.current = ts;
       const e = engineRef.current;
@@ -149,6 +153,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
       if (e?.needsPens?.() && !pensStartedRef.current) {
         pensStartedRef.current = true;
         startPens(e);
+        return; // para o loop aqui: a disputa assume e o sim 2D não roda no fundo
       } else if (e?.isOver?.() && !finishedRef.current && !endResultRef.current) {
         const res = e.result();
         // Mata-mata avança direto; pontos corridos para na tela de fim com a tabela.
