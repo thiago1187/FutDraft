@@ -41,6 +41,21 @@ function lastName(name = "") {
   return p.length > 1 ? p[p.length - 1] : p[0];
 }
 
+// Momentum (-1 = só o visitante criando perigo … +1 = só o mandante): média móvel do xG
+// AO VIVO nos últimos ~8 min. Leitura pura do que o motor já produz (state.xgTimeline);
+// não altera nada da simulação.
+function momentumFromXg(timeline) {
+  if (!Array.isArray(timeline) || timeline.length < 2) return 0;
+  const last = timeline[timeline.length - 1];
+  const cutoff = last.m - 8;
+  let base = timeline[0];
+  for (let i = timeline.length - 1; i >= 0; i--) { if (timeline[i].m <= cutoff) { base = timeline[i]; break; } }
+  const dh = Math.max(0, last.h - base.h), da = Math.max(0, last.a - base.a);
+  const tot = dh + da;
+  if (tot < 0.05) return 0; // pouca ação recente → neutro
+  return Math.max(-1, Math.min(1, (dh - da) / tot));
+}
+
 export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, isHost, isLocal, room, onFinish, onLeave, forcePens, tournament, players, restore, onPersist, managerTactics }) {
   const controller = isHost;
   const engineRef = useRef(null);
@@ -414,6 +429,9 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   const sideName = mySide === "home" ? homeName : awayName;
   const iAmManager = controllable.length > 0;
   const stats = view.stats || { possession: [1, 1], shots: [0, 0], onTarget: [0, 0], corners: [0, 0] };
+  // momentum: do snapshot (cliente) ou calculado do xgTimeline do motor (host).
+  const mom = typeof view.mom === "number" ? view.mom : momentumFromXg(view.xgTimeline);
+  const homePct = Math.round(((mom + 1) / 2) * 100);
 
   // Tela de fim de partida (pontos corridos): classificação JÁ com o resultado aplicado.
   const endStandings = (() => {
@@ -514,6 +532,19 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <TeamBadge mgr={awayMgr} name={awayName} color={awayColor} />
         </div>
       </div>
+
+      {/* MOMENTUM — quem está pressionando (média móvel do xG ao vivo). Só leitura. */}
+      {view.started && view.phase !== "FIM" && view.phase !== "PEN" && (
+        <div className="mlf-momentum" title="Pressão recente — média do xG dos últimos minutos">
+          <span className="mlf-mom-cap" style={{ color: homeColor }}>{homeName}</span>
+          <div className="mlf-mom-track">
+            <div className="mlf-mom-fill" style={{ width: `${homePct}%`, background: homeColor }} />
+            <div className="mlf-mom-fill" style={{ width: `${100 - homePct}%`, background: awayColor }} />
+            <span className="mlf-mom-mid" />
+          </div>
+          <span className="mlf-mom-cap" style={{ color: awayColor }}>{awayName}</span>
+        </div>
+      )}
 
       {/* MAIN — escalações dos dois lados + campo (estilo transmissão) */}
       <div className="mlf-main">
@@ -929,6 +960,7 @@ function compact(s) {
       animating: !!s.penaltyPending.animating, lastKick: s.penaltyPending.lastKick || null,
     } : null,
     lastEvent: s.lastEvent, events: s.events.slice(-14), tactics: s.tactics, subsLeft: s.subsLeft, stats: s.stats, goalsBy,
+    mom: momentumFromXg(s.xgTimeline), // momentum p/ o espectador (barra de pressão)
   };
 }
 
