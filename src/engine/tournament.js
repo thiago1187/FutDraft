@@ -334,7 +334,20 @@ export function createTournament(players, settings) {
 export function allMatches(t) {
   if (!t) return [];
   if (t.format === "league") return t.fixtures;
-  if (t.format === "cup") return [...t.groups.flatMap((g) => g.fixtures), ...(t.rounds || []).flat()];
+  if (t.format === "cup") {
+    // Jogos de grupo na ordem do CALENDÁRIO: rodada a rodada (matchday) entre TODOS os
+    // grupos — não um grupo inteiro de cada vez. Assim nextMatch/simular seguem a mesma
+    // ordem mostrada na tela (e bate com simulateRound, que já avança por rodada).
+    const byRound = {};
+    let maxR = 0;
+    for (const g of t.groups) for (const f of g.fixtures) {
+      (byRound[f.round] = byRound[f.round] || []).push(f);
+      if (f.round + 1 > maxR) maxR = f.round + 1;
+    }
+    const groupFix = [];
+    for (let r = 0; r < maxR; r++) if (byRound[r]) groupFix.push(...byRound[r]);
+    return [...groupFix, ...(t.rounds || []).flat()];
+  }
   return t.rounds.flat();
 }
 
