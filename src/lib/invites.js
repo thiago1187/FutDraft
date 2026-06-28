@@ -68,25 +68,38 @@ export async function acceptInvite(id) {
 }
 
 // DESAFIANTE: meus desafios já aceitos pelo outro lado mas ainda sem sala (a materializar).
+// Só os RECENTES (< TTL): desafios velhos não devem re-disparar criação de sala num reload.
 export async function listAcceptedChallengesToHost(myId) {
   if (!hasSupabase || !myId) return [];
+  const since = new Date(Date.now() - INVITE_TTL_MS).toISOString();
   const { data, error } = await supabase
     .from("game_invites")
     .select("id, to_id, room_id, kind, status, created_at")
-    .eq("from_id", myId).eq("kind", "challenge").eq("status", "accepted").is("room_id", null);
+    .eq("from_id", myId).eq("kind", "challenge").eq("status", "accepted").is("room_id", null)
+    .gte("created_at", since);
   if (error) throw error;
   return data || [];
 }
 
 // DESAFIADO: desafios que EU aceitei e que já ganharam sala (room_id) — pronto pra entrar.
+// Só os RECENTES (< TTL): sem isso, um desafio velho te auto-entrava na sala a cada reload
+// (parecia "reconectar bugado", pulando pra uma sala antiga em vez da sua).
 export async function listMyAcceptedChallengeRooms(myId) {
   if (!hasSupabase || !myId) return [];
+  const since = new Date(Date.now() - INVITE_TTL_MS).toISOString();
   const { data, error } = await supabase
     .from("game_invites")
-    .select("id, from_id, room_id, kind, status")
-    .eq("to_id", myId).eq("kind", "challenge").eq("status", "accepted").not("room_id", "is", null);
+    .select("id, from_id, room_id, kind, status, created_at")
+    .eq("to_id", myId).eq("kind", "challenge").eq("status", "accepted").not("room_id", "is", null)
+    .gte("created_at", since);
   if (error) throw error;
   return data || [];
+}
+
+// Consome um convite/desafio já materializado (deleta) — evita re-disparar entrada num reload.
+export async function consumeInvite(id) {
+  if (!hasSupabase || !id) return;
+  await supabase.from("game_invites").delete().eq("id", id).then(() => {}, () => {});
 }
 
 // Grava o código da sala criada no desafio (o convite "vira o endereço").
