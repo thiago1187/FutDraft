@@ -34,7 +34,7 @@ import * as history from "./lib/history.js";
 import { isUuid } from "./lib/history.js";
 import { listFriendships, touchPresence, setCurrentRoom } from "./lib/social.js";
 import {
-  listIncomingInvites, acceptInvite, declineInvite, setInviteRoom,
+  listIncomingInvites, acceptInvite, declineInvite, setInviteRoom, consumeInvite,
   listAcceptedChallengesToHost, listMyAcceptedChallengeRooms, subscribeInvites,
 } from "./lib/invites.js";
 import { randomSeed } from "./engine/rng.js";
@@ -230,10 +230,14 @@ export default function App() {
     if (!authUid) return;
     // 1) pendentes recebidos → badge + área de convites (expira > 10 min no client).
     try { setIncomingInvites(await listIncomingInvites(authUid)); } catch (_) {}
+    // A auto-coordenação de desafios (2 e 3) NÃO roda se já estou numa sala ou se há um
+    // join/criação MANUAL em andamento (ex.: "Voltar para a sala") — senão atropelava a
+    // reconexão, te jogando numa sala antiga.
+    if (connecting || roomRef.current) return;
     // 2) DESAFIANTE: meu desafio foi aceito e ainda não tem sala → crio a sala e gravo o código.
     try {
       const toHost = await listAcceptedChallengesToHost(authUid);
-      if (toHost.length && !roomRef.current && !challengeBusyRef.current) {
+      if (toHost.length && !roomRef.current && !challengeBusyRef.current && !connecting) {
         challengeBusyRef.current = true;
         try {
           const code = await onCreate(inviteName());
@@ -241,14 +245,16 @@ export default function App() {
         } finally { challengeBusyRef.current = false; }
       }
     } catch (_) {}
-    // 3) DESAFIADO: aceitei um desafio e a sala já existe → entro nela (uma vez só).
+    // 3) DESAFIADO: aceitei um desafio RECENTE e a sala já existe → entro nela (uma vez só)
+    //    e consumo o convite (deleto) pra não re-disparar entrada num próximo reload.
     try {
       const ready = await listMyAcceptedChallengeRooms(authUid);
       for (const inv of ready) {
-        if (roomRef.current) break;
+        if (roomRef.current || connecting) break;
         if (consumedInvRef.current.has(inv.id)) continue;
         consumedInvRef.current.add(inv.id);
         setShowProfile(false);
+        consumeInvite(inv.id);
         onJoin(inv.room_id, inviteName());
         break;
       }
