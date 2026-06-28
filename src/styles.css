@@ -2085,10 +2085,120 @@ body {
 .mwc.lg.live { background: #17150f; }
 .mwc.lg.live .mwc-name { color: #f7f2e4; }
 
+/* ===========================================================
+   CALENDÁRIO DE JOGOS (toggle calendário ↔ chave/tabela)
+   =========================================================== */
+/* barra de alternância */
+.tcup-viewbar { display: flex; align-items: center; gap: 16px; margin: 4px 0 24px; }
+.tcup-switch { display: flex; gap: 8px; flex: 0 0 auto; }
+.tcup-switch-tab {
+  font-family: var(--head); font-weight: 600; font-size: 12px; letter-spacing: 1px;
+  text-transform: uppercase; padding: 9px 15px; border-radius: 9px; cursor: pointer;
+  border: 1.5px solid #cdbf99; background: transparent; color: var(--mut2);
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.tcup-switch-tab:hover { border-color: var(--ink); color: var(--ink); }
+.tcup-switch-tab.on { border-color: var(--ink); background: var(--ink); color: var(--cream); }
+
+/* barra de controle do calendário */
+.tcal-control {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+  padding: 15px 20px; border: 1.5px solid var(--line); border-radius: 14px; background: var(--paper);
+  margin-bottom: 24px;
+}
+.tcal-control-title { font-family: var(--head); font-weight: 700; font-size: 12px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink); }
+.tcal-control-desc { font-family: var(--body); font-size: 13px; color: var(--mut2); margin-top: 3px; max-width: 540px; }
+.tcal-advance {
+  font-family: var(--head); font-weight: 700; font-size: 13px; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--ink); background: var(--gold); border: none; border-radius: 10px; padding: 13px 22px;
+  cursor: pointer; box-shadow: 0 4px 0 var(--gold-deep); white-space: nowrap;
+}
+.tcal-advance:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--gold-deep); }
+.tcal-yourturn {
+  font-family: var(--head); font-weight: 700; font-size: 12px; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--gd); background: rgba(199,162,74,.16); border: 1.5px solid var(--gold);
+  border-radius: 10px; padding: 11px 18px; white-space: nowrap;
+}
+
+/* fases */
+.tcal-phases { display: flex; flex-direction: column; gap: 26px; }
+.tcal-phase-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.tcal-phase-label { font-family: var(--display); font-size: 20px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink); }
+.tcal-phase-sub { font-family: var(--head); font-weight: 600; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--mut); white-space: nowrap; }
+.tcal-rows { display: flex; flex-direction: column; gap: 10px; }
+
+/* linha de jogo */
+.tcal-row {
+  display: grid; grid-template-columns: 56px minmax(0, 1fr) max-content; align-items: center; gap: 16px;
+  padding: 12px 16px 12px 12px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--paper);
+  transition: background .3s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.tcal-row.clickable { cursor: pointer; }
+.tcal-row.clickable:hover { border-color: var(--ink); }
+.tcal-row.played { background: #f3edd8; border-color: #e0d7bd; }
+.tcal-row.next { border-color: var(--ink); }
+.tcal-row.yours { border-color: var(--gold); background: #fffaef; box-shadow: 0 0 0 3px rgba(199,162,74,.20); }
+.tcal-row.ph { opacity: .9; }
+
+.tcal-row-no { text-align: center; }
+.tcal-row-no b { display: block; font-family: var(--display); font-weight: 400; font-size: 24px; line-height: .9; color: #c1b083; }
+.tcal-row.next .tcal-row-no b { color: var(--red); }
+.tcal-row.yours .tcal-row-no b { color: var(--gold); }
+.tcal-row-no span { font-family: var(--head); font-weight: 600; font-size: 8px; letter-spacing: 1px; text-transform: uppercase; color: #a99f80; }
+
+.tcal-row-teams { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tcal-team { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tcal-team .avatar { flex: 0 0 auto; }
+.tcal-name { font-family: var(--arch); font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.tcal-team.lose .tcal-name { color: #9a937e; font-weight: 500; }
+.tcal-team.win .tcal-name { color: var(--red); font-weight: 700; }
+.tcal-name.ph { font-style: italic; font-weight: 400; color: #9a937e; }
+.tcal-crest.dash { width: 22px; height: 22px; border-radius: 50%; border: 1.5px dashed #c7b88f; flex: 0 0 auto; }
+.tcal-you { font-family: var(--head); font-weight: 700; font-size: 8.5px; letter-spacing: 1px; color: var(--ink); background: var(--gold); padding: 2px 5px; border-radius: 4px; flex: 0 0 auto; }
+.tcal-meta { margin-left: auto; padding-left: 8px; display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.tcal-ovr { font-family: var(--head); font-weight: 600; font-size: 11px; color: var(--mut); }
+.tcal-score { font-family: var(--display); font-size: 18px; line-height: 1; color: var(--ink); }
+.tcal-team.lose .tcal-score { color: #9a937e; }
+.tcal-team.win .tcal-score { color: var(--red); }
+.tcal-divider { height: 1px; background: #e7ddc2; }
+.tcal-pens { font-family: var(--head); font-weight: 600; font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--gd); }
+
+.tcal-row-status { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; text-align: right; }
+.tcal-status { font-family: var(--head); font-weight: 700; font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; white-space: nowrap; }
+.tcal-status.done { color: var(--mut); }
+.tcal-status.next { color: var(--red); }
+.tcal-status.yours { color: var(--gd); }
+.tcal-status.sched { color: var(--mut2); }
+.tcal-status.awaiting { color: #a99f80; }
+.tcal-row-btns { display: flex; gap: 8px; }
+.tcal-btn-play {
+  font-family: var(--head); font-weight: 700; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: #fff; background: var(--red); border: none; border-radius: 8px; padding: 9px 14px; cursor: pointer;
+  box-shadow: 0 3px 0 var(--red-dark);
+}
+.tcal-btn-play:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--red-dark); }
+.tcal-btn-sim {
+  font-family: var(--head); font-weight: 700; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink); background: transparent; border: 1.5px solid #cdbf99; border-radius: 8px; padding: 8px 13px; cursor: pointer;
+}
+.tcal-btn-sim:hover { border-color: var(--ink); }
+.tcal-hint { font-family: var(--head); font-weight: 600; font-size: 9px; letter-spacing: .5px; text-transform: uppercase; color: #b08a2e; white-space: nowrap; }
+
+/* faixa do campeão */
+.tcal-champ { display: flex; align-items: center; gap: 18px; background: var(--ink); border-radius: 16px; padding: 20px 26px; margin-top: 22px; }
+.tcal-champ-trophy { font-size: 34px; line-height: 1; }
+.tcal-champ-label { font-family: var(--head); font-weight: 600; font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--gold); }
+.tcal-champ-name { font-family: var(--display); font-size: 30px; text-transform: uppercase; color: #fbf9f2; }
+
 @media (max-width: 980px) {
   .tcup-title { font-size: 44px; }
   .tcup-groups { grid-template-columns: 1fr; }
   .tcup-stats { gap: 16px; }
+  .tcal-row { grid-template-columns: 44px minmax(0, 1fr) max-content; gap: 11px; padding: 11px 12px; }
+  .tcal-row-no b { font-size: 20px; }
+  .tcal-name { font-size: 14px; }
+  .tcal-control { padding: 13px 15px; }
+  .tcal-control-desc { font-size: 12px; }
 }
 
 /* ===========================================================

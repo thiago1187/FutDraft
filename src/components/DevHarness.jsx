@@ -90,8 +90,8 @@ export default function DevHarness({ onExit }) {
   const home = useMemo(() => buildTeam(matchState, "h"), [matchState]);
   const away = useMemo(() => buildTeam(matchState, "b0"), [matchState]);
 
-  // torneio mock (parcialmente jogado) + campeão com 7×0
-  const tournamentState = useMemo(() => buildTournament(false), []);
+  // torneio mock (parcialmente jogado, INTERATIVO p/ testar o calendário) + campeão com 7×0
+  const [tournamentState, setTournamentState] = useState(() => buildTournament(false));
   const championState = useMemo(() => buildTournament(true), []);
 
   const lobbyActions = {
@@ -112,9 +112,26 @@ export default function DevHarness({ onExit }) {
     dispatchDraft: (intent) => setDraftState((s) => ({ ...s, draft: reduceDraft(s.draft, intent) })),
   };
 
+  // Simulação real sobre o estado mock (permite testar o calendário no DEV).
+  const devHasHuman = (prev, m) => {
+    const h = prev.players.find((p) => p.id === m.homeId);
+    const a = prev.players.find((p) => p.id === m.awayId);
+    return (h && !h.isBot) || (a && !a.isBot);
+  };
+  const devSim = (mutate) => setTournamentState((prev) => {
+    const t = structuredClone(prev.tournament);
+    mutate(t, prev);
+    return { ...prev, tournament: t };
+  });
+  const devPlay = (t, prev, m) =>
+    applyMatchResult(t, m.id, simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: true }), prev.players);
   const tourActions = {
     startLiveMatch: () => setScreen("match"),
-    simulateNext: () => {}, simulateRound: () => {}, simulateAll: () => setScreen("champion"),
+    simulateNext: () => devSim((t, prev) => { const m = nextMatch(t); if (m) devPlay(t, prev, m); }),
+    simulateRound: () => devSim((t, prev) => { const m0 = nextMatch(t); if (!m0) return; const ri = t.rounds.findIndex((r) => r.some((x) => x.id === m0.id)); for (const m of t.rounds[ri]) if (!m.played && !m.isBye) devPlay(t, prev, m); }),
+    simulateAll: () => devSim((t, prev) => { let g = 0; while (nextMatch(t) && g < 30) { devPlay(t, prev, nextMatch(t)); g++; } }),
+    simulateUpTo: (id) => devSim((t, prev) => { let g = 0; while (g < 30) { const m = nextMatch(t); if (!m || m.id === id || devHasHuman(prev, m)) break; devPlay(t, prev, m); g++; } }),
+    advanceToMyGame: () => devSim((t, prev) => { let g = 0; while (g < 30) { const m = nextMatch(t); if (!m || devHasHuman(prev, m)) break; devPlay(t, prev, m); g++; } }),
     finishLiveMatch: () => {}, continueAfterMatch: () => {}, claimHost: () => {},
   };
 

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import {
   nextMatch,
   leagueTable,
@@ -66,6 +66,9 @@ function computePhases(t) {
 export default function Tournament({ state, myId, isHost, isLocal, room, actions, hostOffline, onLeave }) {
   const t = state.tournament;
   const players = state.players;
+
+  // alternância da visão inferior: "cal" = calendário de jogos · "struct" = chave/tabela
+  const [view, setView] = useState("cal");
 
   // mata-mata "de verdade", ou fase eliminatória da copa → empates vão a pênaltis
   const knockoutNow = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
@@ -176,15 +179,275 @@ export default function Tournament({ state, myId, isHost, isLocal, room, actions
         <NextBar state={state} match={upcoming} players={players} roundName={roundName} isHost={isHost} actions={actions} />
       )}
 
-      {isCup && <GroupsSection t={t} players={players} current={upcoming} ovrById={ovrById} />}
+      {/* alternância: calendário de jogos ↔ chave/tabela */}
+      <div className="tcup-viewbar">
+        <div className="tcup-rule" />
+        <div className="tcup-switch" role="tablist" aria-label="Visão do campeonato">
+          <button type="button" role="tab" aria-selected={view === "cal"}
+            className={`tcup-switch-tab ${view === "cal" ? "on" : ""}`} onClick={() => setView("cal")}>
+            📅 Calendário
+          </button>
+          <button type="button" role="tab" aria-selected={view === "struct"}
+            className={`tcup-switch-tab ${view === "struct" ? "on" : ""}`} onClick={() => setView("struct")}>
+            {isLeague ? "📊 Tabela" : "🏆 Chave"}
+          </button>
+        </div>
+      </div>
 
-      {showBracket && <BracketSection t={t} players={players} current={upcoming} ovrById={ovrById} isCup={isCup} />}
+      {view === "cal" ? (
+        <CalendarSection t={t} players={players} current={upcoming} ovrById={ovrById} isHost={isHost} actions={actions} isLeague={isLeague} myId={myId} />
+      ) : (
+        <>
+          {isCup && <GroupsSection t={t} players={players} current={upcoming} ovrById={ovrById} />}
 
-      {isCup && t.phase === "groups" && (
-        <p className="tcup-hint">O mata-mata é montado quando a fase de grupos terminar — os 2 primeiros de cada grupo avançam.</p>
+          {showBracket && <BracketSection t={t} players={players} current={upcoming} ovrById={ovrById} isCup={isCup} />}
+
+          {isCup && t.phase === "groups" && (
+            <p className="tcup-hint">O mata-mata é montado quando a fase de grupos terminar — os 2 primeiros de cada grupo avançam.</p>
+          )}
+
+          {isLeague && <LeagueView t={t} players={players} current={upcoming} ovrById={ovrById} />}
+        </>
       )}
+    </div>
+  );
+}
 
-      {isLeague && <LeagueView t={t} players={players} current={upcoming} ovrById={ovrById} />}
+// ---------- CALENDÁRIO DE JOGOS ----------
+// Um jogo "envolve humano" quando qualquer um dos lados é um técnico de verdade (não-bot).
+// A simulação automática resolve só confrontos de bots e PARA quando chega num jogo humano.
+function involvesHuman(players, m) {
+  const h = players.find((p) => p.id === m.homeId);
+  const a = players.find((p) => p.id === m.awayId);
+  return !!((h && !h.isBot) || (a && !a.isBot));
+}
+
+// Acrescenta as fases do mata-mata (rodadas reais + rodadas futuras como placeholders).
+function appendKnockoutPhases(rounds, phases, nextNo, baseLen) {
+  if (!rounds || !rounds.length) return;
+  const base = baseLen || rounds[0].length;
+  const total = Math.round(Math.log2(base * 2)); // nº de fases até a final
+  for (let ri = 0; ri < total; ri++) {
+    const count = base / Math.pow(2, ri);
+    const real = rounds[ri];
+    const tag = shortRound(count).toUpperCase();
+    let games;
+    if (real) {
+      games = real.filter((m) => !m.isBye).map((m) => ({ kind: "match", key: m.id, m, no: nextNo(), tag }));
+    } else {
+      const prevLabel = shortRound(base / Math.pow(2, ri - 1));
+      games = Array.from({ length: count }).map((_, j) => ({
+        kind: "ph", key: `ph${ri}_${j}`, no: nextNo(), tag, feeder: `Vencedor · ${prevLabel}`,
+      }));
+    }
+    const allPlayed = real ? real.every((m) => m.played) : false;
+    const hasNext = real ? real.some((m) => !m.played && !m.isBye) : false;
+    phases.push({
+      key: "k" + ri,
+      label: roundLabel(count),
+      count: `${count} jogo${count > 1 ? "s" : ""}`,
+      statusText: allPlayed ? "Encerrada" : hasNext ? "Em andamento" : "A definir",
+      games,
+    });
+  }
+}
+
+// Monta a lista de fases do calendário a partir do torneio (liga, copa ou mata-mata).
+function buildCalendarPhases(t) {
+  const phases = [];
+  let n = 0;
+  const nextNo = () => String(++n).padStart(2, "0");
+
+  if (t.format === "league") {
+    const byRound = {};
+    t.fixtures.forEach((f) => { (byRound[f.round] = byRound[f.round] || []).push(f); });
+    Object.keys(byRound).map(Number).sort((a, b) => a - b).forEach((rk) => {
+      const list = byRound[rk];
+      const games = list.map((m) => ({ kind: "match", key: m.id, m, no: nextNo(), tag: `${rk + 1}ª RD` }));
+      phases.push({
+        key: "r" + rk, label: `${rk + 1}ª Rodada`,
+        count: `${list.length} jogo${list.length > 1 ? "s" : ""}`,
+        statusText: list.every((m) => m.played) ? "Encerrada" : list.some((m) => !m.played) ? "Em andamento" : "A definir",
+        games,
+      });
+    });
+    return phases;
+  }
+
+  if (t.format === "cup") {
+    const byRound = {};
+    for (const g of t.groups) for (const f of g.fixtures) { (byRound[f.round] = byRound[f.round] || []).push(f); }
+    Object.keys(byRound).map(Number).sort((a, b) => a - b).forEach((rk) => {
+      const list = byRound[rk];
+      const games = list.map((m) => ({ kind: "match", key: m.id, m, no: nextNo(), tag: "GRUPOS" }));
+      phases.push({
+        key: "g" + rk, label: `Grupos · ${rk + 1}ª Rodada`,
+        count: `${list.length} jogo${list.length > 1 ? "s" : ""}`,
+        statusText: list.every((m) => m.played) ? "Encerrada" : list.some((m) => !m.played) ? "Em andamento" : "A definir",
+        games,
+      });
+    });
+    appendKnockoutPhases(t.rounds, phases, nextNo, null);
+    return phases;
+  }
+
+  appendKnockoutPhases(t.rounds, phases, nextNo, t.rounds[0].length);
+  return phases;
+}
+
+function CalendarSection({ t, players, current, ovrById, isHost, actions, isLeague, myId }) {
+  const phases = buildCalendarPhases(t);
+  const champ = t.champion ? players.find((p) => p.id === t.champion) : null;
+
+  // barra de controle: a vez do humano agora · avançar até o jogo humano · simular tudo
+  const sched = allMatches(t);
+  const nextHuman = sched.find((m) => !m.played && m.homeId && m.awayId && involvesHuman(players, m));
+  let mode = null; // "your" | "advance" | "all"
+  if (current && involvesHuman(players, current)) mode = "your";
+  else if (nextHuman) mode = "advance";
+  else if (current) mode = "all";
+
+  return (
+    <section className="tcup-section tcal">
+      <div className="tcal-control">
+        <div className="tcal-control-info">
+          <div className="tcal-control-title">Ordem das partidas</div>
+          <div className="tcal-control-desc">
+            Clique numa partida para simular tudo até ela — a CPU resolve os jogos de bots sozinha e para quando chega a vez de um jogo humano.
+          </div>
+        </div>
+        {isHost && mode === "your" && <span className="tcal-yourturn">✓ É a vez do seu jogo</span>}
+        {isHost && mode === "advance" && (
+          <button type="button" className="tcal-advance" onClick={() => actions.advanceToMyGame?.()}>▶ Avançar até meu jogo</button>
+        )}
+        {isHost && mode === "all" && (
+          <button type="button" className="tcal-advance" onClick={() => actions.simulateAll?.()}>Simular tudo</button>
+        )}
+        {!isHost && <span className="tnb-note">O anfitrião comanda as simulações — a tela atualiza sozinha.</span>}
+      </div>
+
+      <div className="tcal-phases">
+        {phases.map((ph) => (
+          <div className="tcal-phase" key={ph.key}>
+            <div className="tcal-phase-head">
+              <span className="tcal-phase-label">{ph.label}</span>
+              <span className="tcal-phase-sub">{ph.count} · {ph.statusText}</span>
+              <div className="tcup-rule" />
+            </div>
+            <div className="tcal-rows">
+              {ph.games.map((g) => (
+                <CalRow key={g.key} game={g} players={players} ovrById={ovrById} current={current} isHost={isHost} actions={actions} myId={myId} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {champ && (
+        <div className="tcal-champ">
+          <span className="tcal-champ-trophy">🏆</span>
+          <div>
+            <div className="tcal-champ-label">Campeão {isLeague ? "da Liga" : "da Copa"}</div>
+            <div className="tcal-champ-name">{champ.teamName}</div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// Uma linha de jogo no calendário. Jogado → placar; próximo → "a seguir" (com Jogar 2D/Simular);
+// agendado → clicável p/ "simular até aqui"; placeholder → "Aguardando".
+function CalTeam({ p, ovrById, played, win, score, myId }) {
+  if (!p) {
+    return (
+      <div className="tcal-team ph">
+        <span className="tcal-crest dash" />
+        <span className="tcal-name ph">A definir</span>
+      </div>
+    );
+  }
+  return (
+    <div className={`tcal-team ${played ? (win ? "win" : "lose") : ""}`}>
+      <Avatar emoji={p.emoji} color={p.color} size={24} />
+      <span className="tcal-name">{p.teamName}</span>
+      {p.id === myId && <span className="tcal-you">VOCÊ</span>}
+      <span className="tcal-meta">
+        {played ? <span className="tcal-score">{score}</span> : (ovrById?.[p.id] != null && <span className="tcal-ovr">{ovrById[p.id]}</span>)}
+      </span>
+    </div>
+  );
+}
+
+function CalRow({ game, players, ovrById, current, isHost, actions, myId }) {
+  if (game.kind === "ph") {
+    return (
+      <div className="tcal-row ph">
+        <div className="tcal-row-no"><b>{game.no}</b><span>{game.tag}</span></div>
+        <div className="tcal-row-teams">
+          <div className="tcal-team ph"><span className="tcal-crest dash" /><span className="tcal-name ph">{game.feeder}</span></div>
+          <div className="tcal-divider" />
+          <div className="tcal-team ph"><span className="tcal-crest dash" /><span className="tcal-name ph">{game.feeder}</span></div>
+        </div>
+        <div className="tcal-row-status"><span className="tcal-status awaiting">Aguardando</span></div>
+      </div>
+    );
+  }
+
+  const m = game.m;
+  const home = players.find((p) => p.id === m.homeId) || null;
+  const away = players.find((p) => p.id === m.awayId) || null;
+  const r = m.result;
+  const played = !!m.played;
+  const isNext = !!(current && current.id === m.id);
+  const defined = !!(m.homeId && m.awayId);
+  const human = defined && involvesHuman(players, m);
+
+  let rowClass = "tcal-row", statusLabel = "Agendado", statusClass = "sched";
+  let onRow = null, showHint = false, btns = null;
+
+  if (played) {
+    rowClass += " played"; statusLabel = "Encerrado"; statusClass = "done";
+  } else if (!defined) {
+    rowClass += " ph"; statusLabel = "Aguardando"; statusClass = "awaiting";
+  } else if (isNext && human) {
+    rowClass += " yours"; statusLabel = "Seu jogo · a seguir"; statusClass = "yours";
+    if (isHost) btns = (
+      <div className="tcal-row-btns">
+        <button type="button" className="tcal-btn-play" onClick={() => actions.startLiveMatch(m.id)}>▶ Jogar 2D</button>
+        <button type="button" className="tcal-btn-sim" onClick={() => actions.simulateNext?.()}>Simular</button>
+      </div>
+    );
+  } else if (isNext) {
+    rowClass += " next"; statusLabel = "A seguir"; statusClass = "next";
+    if (isHost) btns = (
+      <div className="tcal-row-btns">
+        <button type="button" className="tcal-btn-sim" onClick={() => actions.simulateNext?.()}>Simular</button>
+      </div>
+    );
+  } else {
+    // agendado: clique simula tudo até aqui (parando em jogos humanos)
+    if (isHost) { onRow = () => actions.simulateUpTo?.(m.id); showHint = true; rowClass += " clickable"; }
+  }
+
+  const hw = r && r.winner === "home";
+  const aw = r && r.winner === "away";
+  const pens = r && r.pens ? `pên ${r.pens.home}–${r.pens.away}` : null;
+
+  return (
+    <div className={rowClass} onClick={onRow || undefined}>
+      <div className="tcal-row-no"><b>{game.no}</b><span>{game.tag}</span></div>
+      <div className="tcal-row-teams">
+        <CalTeam p={home} ovrById={ovrById} played={played} win={hw} score={r ? r.homeGoals : null} myId={myId} />
+        <div className="tcal-divider" />
+        <CalTeam p={away} ovrById={ovrById} played={played} win={aw} score={r ? r.awayGoals : null} myId={myId} />
+        {pens && <span className="tcal-pens">{pens}</span>}
+      </div>
+      <div className="tcal-row-status">
+        <span className={`tcal-status ${statusClass}`}>{statusLabel}</span>
+        {btns}
+        {isHost && showHint && <span className="tcal-hint">↻ clique p/ simular até aqui</span>}
+      </div>
     </div>
   );
 }

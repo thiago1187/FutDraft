@@ -725,6 +725,54 @@ export default function App() {
         return { ...prev, tournament: t, presenting: null, phase: "finished" };
       });
     },
+    // Calendário: simula os jogos na ordem do calendário até CHEGAR na partida `matchId`
+    // (exclusivo) ou até esbarrar num jogo que envolve um humano (não-bot) — o que vier
+    // primeiro. A CPU resolve os confrontos só de bots; jogos de humanos NÃO são auto-jogados.
+    // Silencioso: não abre súmula de partida (diferente de simulateNext).
+    simulateUpTo(matchId) {
+      applyEngine((prev) => {
+        const t = structuredClone(prev.tournament);
+        const hasHuman = (m) => {
+          const h = prev.players.find((p) => p.id === m.homeId);
+          const a = prev.players.find((p) => p.id === m.awayId);
+          return (h && !h.isBot) || (a && !a.isBot);
+        };
+        let guard = 0;
+        while (guard < 600) {
+          const m = nextMatch(t);
+          if (!m || m.id === matchId || hasHuman(m)) break;
+          const ko = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
+          const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: ko });
+          applyMatchResult(t, m.id, result, prev.players);
+          guard++;
+        }
+        const fin = tournamentFinished(t);
+        return { ...prev, tournament: t, presenting: null, phase: fin ? "finished" : "tournament" };
+      });
+    },
+    // Calendário: a CPU avança simulando todos os confrontos só-de-bots até o próximo jogo
+    // que envolve humano (ou o fim do campeonato). É o "▶ Avançar até meu jogo". Silencioso.
+    advanceToMyGame() {
+      applyEngine((prev) => {
+        const t = structuredClone(prev.tournament);
+        const hasHuman = (m) => {
+          const h = prev.players.find((p) => p.id === m.homeId);
+          const a = prev.players.find((p) => p.id === m.awayId);
+          return (h && !h.isBot) || (a && !a.isBot);
+        };
+        let guard = 0;
+        while (guard < 600) {
+          const m = nextMatch(t);
+          if (!m || hasHuman(m)) break;
+          const ko = t.format === "knockout" || (t.format === "cup" && t.phase === "knockout");
+          const result = simulateMatch(buildTeam(prev, m.homeId), buildTeam(prev, m.awayId), { knockout: ko });
+          applyMatchResult(t, m.id, result, prev.players);
+          guard++;
+        }
+        const fin = tournamentFinished(t);
+        return { ...prev, tournament: t, presenting: null, phase: fin ? "finished" : "tournament" };
+      });
+    },
     playAgain() {
       applyEngine((prev) => ({
         ...prev,
