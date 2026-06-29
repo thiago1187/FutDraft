@@ -5,7 +5,7 @@ import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
 import { escudoImg, Avatar } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
-import { playWhistle, playGoal, preloadGoal } from "../lib/audio.js";
+import { playWhistle, playGoal, playFoul, playEndGame, preloadGoal } from "../lib/audio.js";
 import { reconcileSpectatorView } from "../lib/clockSync.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
@@ -894,10 +894,12 @@ function AudioCues({ active, started, lastEvent }) {
     lastKeyRef.current = key;
     if (e.type === "goal") playGoal();
     else if (e.type === "yellow") playWhistle("yellow");
-    else if (e.type === "red") playWhistle("red");
+    else if (e.type === "red") playFoul();              // cartão vermelho → foul.mp3
     else if (e.type === "whistle") {
       const t = (e.text || "").toLowerCase();
-      if (t.includes("2º tempo") || t.includes("2o tempo")) playWhistle("halftime");
+      if (t.includes("intervalo")) playFoul();          // fim do 1º tempo → foul.mp3
+      else if (t.includes("fim de jogo")) playEndGame(); // final de jogo → end-game.mp3
+      else if (t.includes("2º tempo") || t.includes("2o tempo")) playWhistle("halftime");
       else if (t.includes("fim") || t.includes("pênal") || t.includes("penal")) playWhistle("final");
     }
   }, [active, lastEvent]);

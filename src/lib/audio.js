@@ -10,6 +10,8 @@ let _volume = 0.7;      // 0..1 (profiles.prefs.volume)
 let _synth = null;      // sintetizador dos apitos (mono — sequências não se sobrepõem)
 let _vol = null;        // nó de volume mestre
 let _goal = null;       // <audio> do gol, pré-carregado
+let _foul = null;       // <audio> de cartão vermelho / fim do 1º tempo (foul.mp3)
+let _endGame = null;    // <audio> de fim de jogo (end-game.mp3)
 
 const linToDb = (v) => (v <= 0 ? -60 : 20 * Math.log10(v));
 
@@ -33,19 +35,31 @@ export function setSound({ enabled, volume } = {}) {
   if (typeof volume === "number") {
     _volume = Math.max(0, Math.min(1, volume));
     if (_vol) _vol.volume.value = linToDb(_volume);
-    if (_goal) _goal.volume = _volume;
+    for (const a of [_goal, _foul, _endGame]) if (a) a.volume = _volume;
   }
 }
 
-// Pré-carrega o mp3 do gol no início da partida (sem tocar).
-export function preloadGoal() {
-  if (_goal || typeof Audio === "undefined") return;
+function makeSfx(src) {
+  if (typeof Audio === "undefined") return null;
   try {
-    _goal = new Audio("/sfx/goal.mp3");
-    _goal.preload = "auto";
-    _goal.volume = _volume;
-    _goal.load();
-  } catch { /* ignora */ }
+    const a = new Audio(src);
+    a.preload = "auto";
+    a.volume = _volume;
+    a.load();
+    return a;
+  } catch { return null; }
+}
+
+// Pré-carrega os mp3 da partida no início (sem tocar): gol, falta/cartão, fim de jogo.
+export function preloadGoal() {
+  if (!_goal) _goal = makeSfx("/sfx/goal.mp3");
+  if (!_foul) _foul = makeSfx("/sfx/foul.mp3");
+  if (!_endGame) _endGame = makeSfx("/sfx/end-game.mp3");
+}
+
+function playSfx(a) {
+  if (!_started || !_enabled || !a) return;
+  try { a.currentTime = 0; a.volume = _volume; a.play().catch(() => {}); } catch { /* ignora */ }
 }
 
 // Sequências de apito por evento: [nota, duração]. O vermelho é mais longo/duplo que o
@@ -69,9 +83,10 @@ export function playWhistle(kind) {
   }
 }
 
-export function playGoal() {
-  if (!_started || !_enabled) return;
-  preloadGoal();
-  if (!_goal) return;
-  try { _goal.currentTime = 0; _goal.volume = _volume; _goal.play().catch(() => {}); } catch { /* ignora */ }
-}
+export function playGoal() { preloadGoal(); playSfx(_goal); }
+
+// Cartão vermelho e fim do 1º tempo (intervalo).
+export function playFoul() { preloadGoal(); playSfx(_foul); }
+
+// Fim de jogo.
+export function playEndGame() { preloadGoal(); playSfx(_endGame); }
