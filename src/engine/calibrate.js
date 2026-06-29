@@ -15,7 +15,7 @@ import { winProb } from "./winprob.js";
 import { findFormation } from "./formations.js";
 
 const N_QUICK = Number(process.argv[2]) || 20000; // sim rápida (rápida → N alto)
-const N_LIVE = Number(process.argv[3]) || 3000;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão não dar flaky)
+const N_LIVE = Number(process.argv[3]) || 8000;   // motor ao vivo (mais lento; N alto p/ bandas estreitas de cartão/vermelho não dar flaky — vermelhos ~0.226/jogo precisam de N alto p/ ficar bem acima da borda 0.20)
 
 // ---------- elencos sintéticos ----------
 const SLOTS = [
@@ -160,7 +160,7 @@ function calibLive() {
   pass &= line("Amarelos por jogo (2 times)", yel.toFixed(2), "3.5–4.0", within(yel, 3.5, 4.0));
   pass &= line("Vermelhos por jogo (total)", reds.toFixed(3), "0.20–0.25", within(reds, 0.20, 0.25));
   pass &= line("  dos quais 2º amarelo (maioria)", secondYellowReds.toFixed(3), `> direto (${dReds.toFixed(3)})`, secondYellowReds > dReds);
-  pass &= line("Vermelho DIRETO por jogo (raro)", dReds.toFixed(3), "0.06–0.08", within(dReds, 0.055, 0.09));
+  pass &= line("Vermelho DIRETO por jogo (raro)", dReds.toFixed(3), "0.06–0.09", within(dReds, 0.055, 0.09));
   pass &= line("Pênaltis por jogo", (P / N_LIVE).toFixed(3), "~0.20 (0.13–0.28)", within(P / N_LIVE, 0.13, 0.28));
   // pênaltis são raros (~0.2/jogo) → amostra pequena mesmo com N alto; banda ±6pp p/ não dar flaky.
   pass &= line("Conversão de pênalti (~67%)", pctStr(penConv), "61%–73%", within(penConv, 0.61, 0.73));

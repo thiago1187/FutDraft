@@ -40,14 +40,12 @@ function basePositions(team, side) {
 
 const TACTIC_DEFAULT = { posture: "equilibrado", line: "media", marking: "leve", build: 0.4, attackSide: "meio", manMark: null };
 
-// Desfecho do pênalti = SÓ SORTE + duelo de cantos (NÃO depende da qualidade do
-// batedor). Goleiro no MESMO canto → defesa provável (~70%); canto errado → quase
-// sempre gol (~85%, mas dá pra errar o chute). Com escolhas aleatórias (goleiro
-// acerta ~1/3) → conversão ~67%. Puro (recebe rng) → usado pelo jogo e medido no harness.
-// O 1º parâmetro é mantido por compatibilidade de assinatura, mas é IGNORADO.
-export function penaltyScored(_prob, aim, gkDir, rng) {
-  const matched = aim === gkDir;
-  return rng() < (matched ? 0.30 : 0.85);
+// Desfecho do pênalti = duelo de cantos PURO (igual à disputa de pênaltis): canto
+// DIFERENTE = GOL, MESMO canto = defesa. Sem "isolar"/pra fora e sem qualidade do
+// batedor. Com escolhas aleatórias (goleiro acerta ~1/3) → conversão 2/3 ≈ 66,7%
+// (dentro da banda do brief). 1º e 4º parâmetros mantidos por compatibilidade (IGNORADOS).
+export function penaltyScored(_prob, aim, gkDir, _rng) {
+  return aim !== gkDir;
 }
 
 export function createLiveMatch(home, away, opts = {}) {

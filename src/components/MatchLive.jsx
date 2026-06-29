@@ -296,16 +296,10 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
   function igPenFire() {
     const pp = engineRef.current?.state?.penaltyPending;
     if (!pp || pp.animating || pp.picks.aim == null || pp.picks.gk == null) return;
-    // Duelo de cantos DOMINA, mas a qualidade do batedor/goleiro (prob) modula:
-    // goleiro acertou o canto → defesa provável (craque ainda marca às vezes); errou → gol
-    // quase certo (mas batedor fraco ainda pode perder).
-    const matched = pp.picks.gk === pp.picks.aim;
-    const prob = pp.prob ?? 0.78;
-    // mesma mecânica do harness (calibrada ~67%) → jogo e calibração batem.
-    const scored = penaltyScored(prob, pp.picks.aim, pp.picks.gk, Math.random);
-    // desfecho COERENTE com a animação: gol / defesa (goleiro acertou o canto) / pra fora
-    // (goleiro foi pro lado errado e o batedor errou — a bola sai, não é "defesa").
-    const outcome = scored ? "goal" : matched ? "save" : "miss";
+    // Duelo de cantos PURO (igual à disputa de pênaltis): canto DIFERENTE = gol, MESMO
+    // canto = defesa. Sem "isolar"/pra fora. Mesma mecânica do harness → jogo e calibração batem.
+    const scored = penaltyScored(pp.prob ?? 0.78, pp.picks.aim, pp.picks.gk, Math.random);
+    const outcome = scored ? "goal" : "save"; // só gol ou defesa — nunca pra fora
     pp.lastKick = { aim: pp.picks.aim, scored, gkDir: pp.picks.gk, outcome, side: pp.att, id: pp.id };
     pp.animating = true;
     setTick((n) => n + 1);
