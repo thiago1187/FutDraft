@@ -5,7 +5,7 @@ import { PRESETS, computeSynergy, matchingPreset } from "../engine/tactics.js";
 import { leagueTable, applyMatchResult } from "../engine/tournament.js";
 import { escudoImg, Avatar } from "./bits.jsx";
 import { listMyTactics } from "../lib/savedTactics.js";
-import { playWhistle, playGoal, playFoul, playEndGame, preloadGoal } from "../lib/audio.js";
+import { playGoal, playFoul, playEndGame, preloadGoal } from "../lib/audio.js";
 import { reconcileSpectatorView } from "../lib/clockSync.js";
 import Pitch2D from "./Pitch2D.jsx";
 import PostMatch from "./PostMatch.jsx";
@@ -626,7 +626,7 @@ export default function MatchLive({ match, home, away, homeMgr, awayMgr, myId, i
           <CineOverlay cine={view.cinematic} dramatic={dramaticActive} scorer={view.lastEvent?.type === "goal" ? view.lastEvent.scorer : null} homeName={homeName} awayName={awayName} homeColor={homeColor} awayColor={awayColor} />
           <FreezeOverlay cine={view.cinematic} active={dramaticActive} reduced={reduceMotion} scorer={view.lastEvent?.type === "goal" ? view.lastEvent.scorer : null}
             homeColor={homeColor} awayColor={awayColor} homeName={homeName} awayName={awayName} />
-          <AudioCues active={humanSides.length > 0} started={!!view.started} lastEvent={view.lastEvent} />
+          <AudioCues active={humanSides.length > 0} lastEvent={view.lastEvent} />
         </div>
 
         <aside className="mlf-side">
@@ -875,16 +875,10 @@ function FreezeOverlay({ cine, active, reduced, scorer, homeColor, awayColor, ho
 // Toca os sons dos lances que o motor JÁ emitiu: apito de início/2º tempo/cartões/fim
 // (Tone.js) e o mp3 de gol. `active` = há humano na partida (silêncio em bot×bot; o
 // simular-tudo nem renderiza). O módulo de áudio respeita prefs e o unlock por gesto.
-function AudioCues({ active, started, lastEvent }) {
+function AudioCues({ active, lastEvent }) {
   const lastKeyRef = useRef(null);
-  const startedRef = useRef(null);
   useEffect(() => { if (active) preloadGoal(); }, [active]);
-  // apito de início — só na transição "não começou" → "começou" (não retroativo p/ quem entra no meio)
-  useEffect(() => {
-    if (startedRef.current === null) { startedRef.current = !!started; return; }
-    if (active && started && !startedRef.current) { startedRef.current = true; playWhistle("kickoff"); }
-  }, [active, started]);
-  // demais eventos: dispara 1× por evento novo (lastEvent muda de assinatura)
+  // eventos: dispara 1× por evento novo (lastEvent muda de assinatura)
   useEffect(() => {
     if (!active || !lastEvent) return;
     const e = lastEvent;
@@ -893,14 +887,11 @@ function AudioCues({ active, started, lastEvent }) {
     if (key === lastKeyRef.current) return;
     lastKeyRef.current = key;
     if (e.type === "goal") playGoal();
-    else if (e.type === "yellow") playWhistle("yellow");
     else if (e.type === "red") playFoul();              // cartão vermelho → foul.mp3
     else if (e.type === "whistle") {
       const t = (e.text || "").toLowerCase();
       if (t.includes("intervalo")) playFoul();          // fim do 1º tempo → foul.mp3
-      else if (t.includes("fim de jogo")) playEndGame(); // final de jogo → end-game.mp3
-      else if (t.includes("2º tempo") || t.includes("2o tempo")) playWhistle("halftime");
-      else if (t.includes("fim") || t.includes("pênal") || t.includes("penal")) playWhistle("final");
+      else if (t.includes("fim de jogo")) playEndGame(); // fim de jogo → end-game.mp3
     }
   }, [active, lastEvent]);
   return null;

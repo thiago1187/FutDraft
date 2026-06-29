@@ -1,43 +1,14 @@
-// Áudio híbrido da partida: apitos SINTETIZADOS (Tone.js, sem arquivo) + 1 mp3 de gol
-// (torcida de estádio, public/sfx/goal.mp3). Política de autoplay: nada toca antes da 1ª
-// interação do usuário — chame unlockAudio() num gesto (click/touch). Silêncio fica a
-// cargo de quem chama (não tocar em bot×bot / simular-tudo). Volume comedido.
-import * as Tone from "tone";
+// Áudio da partida: 3 mp3 em public/sfx — gol (goal.mp3), cartão vermelho + fim do 1º
+// tempo (foul.mp3) e fim de jogo (end-game.mp3). Sem apitos sintetizados. Política de
+// autoplay: nada toca antes da 1ª interação do usuário — chame unlockAudio() num gesto
+// (click/touch). Silêncio fica a cargo de quem chama (não tocar em bot×bot). Volume comedido.
 
-let _started = false;   // Tone.start() já rodou (após gesto do usuário)
+let _started = false;   // já houve gesto do usuário (autoplay liberado)
 let _enabled = true;    // preferência de som (profiles.prefs.sound)
 let _volume = 0.7;      // 0..1 (profiles.prefs.volume)
-let _synth = null;      // sintetizador dos apitos (mono — sequências não se sobrepõem)
-let _vol = null;        // nó de volume mestre
-let _goal = null;       // <audio> do gol, pré-carregado
+let _goal = null;       // <audio> do gol (goal.mp3)
 let _foul = null;       // <audio> de cartão vermelho / fim do 1º tempo (foul.mp3)
 let _endGame = null;    // <audio> de fim de jogo (end-game.mp3)
-
-const linToDb = (v) => (v <= 0 ? -60 : 20 * Math.log10(v));
-
-function ensureNodes() {
-  if (_synth) return;
-  _vol = new Tone.Volume(linToDb(_volume)).toDestination();
-  _synth = new Tone.Synth({
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.004, decay: 0.04, sustain: 0.5, release: 0.06 },
-  }).connect(_vol);
-}
-
-// Deve ser chamada no 1º gesto do usuário (autoplay policy dos navegadores).
-export async function unlockAudio() {
-  if (_started) return true;
-  try { await Tone.start(); _started = true; ensureNodes(); return true; } catch { return false; }
-}
-
-export function setSound({ enabled, volume } = {}) {
-  if (typeof enabled === "boolean") _enabled = enabled;
-  if (typeof volume === "number") {
-    _volume = Math.max(0, Math.min(1, volume));
-    if (_vol) _vol.volume.value = linToDb(_volume);
-    for (const a of [_goal, _foul, _endGame]) if (a) a.volume = _volume;
-  }
-}
 
 function makeSfx(src) {
   if (typeof Audio === "undefined") return null;
@@ -50,37 +21,37 @@ function makeSfx(src) {
   } catch { return null; }
 }
 
-// Pré-carrega os mp3 da partida no início (sem tocar): gol, falta/cartão, fim de jogo.
+// Pré-carrega os mp3 da partida (sem tocar): gol, falta/cartão, fim de jogo.
 export function preloadGoal() {
   if (!_goal) _goal = makeSfx("/sfx/goal.mp3");
   if (!_foul) _foul = makeSfx("/sfx/foul.mp3");
   if (!_endGame) _endGame = makeSfx("/sfx/end-game.mp3");
 }
 
+// Deve ser chamada no 1º gesto do usuário (autoplay policy). "Prime" cada elemento com um
+// play()/pause() mudo, ainda dentro do gesto, p/ liberar o autoplay nos navegadores estritos.
+export async function unlockAudio() {
+  if (_started) return true;
+  _started = true;
+  preloadGoal();
+  for (const a of [_goal, _foul, _endGame]) {
+    if (!a) continue;
+    try { a.muted = true; await a.play(); a.pause(); a.currentTime = 0; a.muted = false; } catch { /* ignora */ }
+  }
+  return true;
+}
+
+export function setSound({ enabled, volume } = {}) {
+  if (typeof enabled === "boolean") _enabled = enabled;
+  if (typeof volume === "number") {
+    _volume = Math.max(0, Math.min(1, volume));
+    for (const a of [_goal, _foul, _endGame]) if (a) a.volume = _volume;
+  }
+}
+
 function playSfx(a) {
   if (!_started || !_enabled || !a) return;
   try { a.currentTime = 0; a.volume = _volume; a.play().catch(() => {}); } catch { /* ignora */ }
-}
-
-// Sequências de apito por evento: [nota, duração]. O vermelho é mais longo/duplo que o
-// amarelo; o final é uma cadência de 3 toques. Tons curtos e limpos.
-const WHISTLE = {
-  kickoff: [["A5", "8n"]],
-  halftime: [["A5", "16n"], ["C6", "16n"]],
-  yellow: [["G5", "16n"]],
-  red: [["G5", "8n"], ["G5", "4n"]],
-  final: [["A5", "8n"], ["F5", "8n"], ["D5", "2n"]],
-};
-
-export function playWhistle(kind) {
-  if (!_started || !_enabled) return;
-  ensureNodes();
-  const seq = WHISTLE[kind] || WHISTLE.kickoff;
-  let t = Tone.now() + 0.02;
-  for (const [note, dur] of seq) {
-    _synth.triggerAttackRelease(note, dur, t);
-    t += Tone.Time(dur).toSeconds() + 0.04;
-  }
 }
 
 export function playGoal() { preloadGoal(); playSfx(_goal); }
